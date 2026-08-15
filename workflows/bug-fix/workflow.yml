@@ -1,0 +1,99 @@
+id: bug-fix
+name: Bug Fix
+version: 1
+description: Reproduce a defect, implement bounded repair stories, verify each repair, and run regression checks.
+agents:
+  - id: analyst
+    name: Bug analyst
+    role: analysis
+    extends: shared/bug-analyst
+    timeoutSeconds: 900
+  - id: fixer
+    name: Fix implementer
+    role: coding
+    extends: shared/fixer
+    timeoutSeconds: 1800
+  - id: verifier
+    name: Fix verifier
+    role: verification
+    extends: shared/verifier
+    timeoutSeconds: 900
+  - id: tester
+    name: Regression tester
+    role: testing
+    extends: shared/tester
+    timeoutSeconds: 1200
+steps:
+  - id: reproduce
+    agent: analyst
+    type: single
+    input: |
+      Reproduce and analyze this defect in {{workspace}}:
+
+      {{task}}
+
+      Produce a bounded repair plan as STORIES_JSON. Every story must include a regression criterion tied to the reproduction. End with STATUS: done.
+    expects: "STATUS: done"
+    maxRetries: 2
+  - id: repair
+    agent: fixer
+    type: loop
+    over: stories
+    completion: all_done
+    freshSession: true
+    input: |
+      Repair only this story:
+
+      {{current_story}}
+
+      Previous verification feedback:
+      {{verify_feedback}}
+
+      Preserve unrelated work, add regression coverage, report CHANGES, and end with STATUS: done.
+    expects: "STATUS: done"
+    maxRetries: 1
+    verifyEach: true
+    verifyStep: verify-fix
+    repairInput: |
+      Repair the completed fix after regression testing failed.
+
+      {{issues}}
+
+      Completed repairs:
+      {{stories_summary}}
+
+      Make the smallest complete correction, report CHANGES, and end with STATUS: done.
+  - id: verify-fix
+    agent: verifier
+    type: single
+    input: |
+      Independently verify this repair story:
+
+      {{current_story}}
+
+      Claimed changes:
+      {{changes}}
+
+      Re-run the reproduction and focused regression checks. End with STATUS: done, or STATUS: retry and ISSUES.
+    expects: "STATUS: done"
+    maxRetries: 1
+    onFail:
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human
+  - id: regression
+    agent: tester
+    type: single
+    input: |
+      Run the appropriate regression checks for this repaired defect:
+
+      {{task}}
+
+      End with STATUS: done only when checks pass; otherwise STATUS: retry and ISSUES.
+    expects: "STATUS: done"
+    maxRetries: 1
+    onFail:
+      retryStep: repair
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human

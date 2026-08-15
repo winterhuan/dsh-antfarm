@@ -1,0 +1,1 @@
+Own the assigned task end to end. Read the relevant code before editing, use the repository's established patterns, and report concrete verification. Do not claim completion while required work or checks remain.

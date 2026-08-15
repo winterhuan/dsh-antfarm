@@ -1,0 +1,31 @@
+- insert:
+    - id: antfarm-client-anchor
+      name: dsh-antfarm
+
+    - id: antfarm-runtime
+      name: dsh-antfarm/runtime
+      config:
+        journalRoot: !!js dshHomePath('antfarm/runs')
+        workflowDirs:
+          - !!js dshHomePath('antfarm/workflows')
+        worktreeDirectory: .worktrees/antfarm
+        defaultIsolation: worktree
+        defaultStepTimeoutSeconds: 1800
+        subagentProvider: spawn
+        maxActiveRunsPerOwner: 2
+        cleanupCompletedWorktrees: true
+        cleanupCancelledWorktrees: true
+
+    - id: antfarm-studio-host
+      name: dsh-antfarm/studio-host
+      config:
+        journalRoot: !!js dshHomePath('antfarm/runs')
+        workflowDirs:
+          - !!js dshHomePath('antfarm/workflows')
+        editable: true
+
+    - id: antfarm-tool
+      name: dsh-antfarm/tool
+
+    - id: antfarm-commands
+      name: dsh-antfarm/commands

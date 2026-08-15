@@ -1,0 +1,99 @@
+id: security-audit
+name: Security Audit
+version: 1
+description: Identify material security findings, remediate each finding, verify fixes, and run a final audit.
+agents:
+  - id: scanner
+    name: Security scanner
+    role: scanning
+    extends: shared/security-scanner
+    timeoutSeconds: 1800
+  - id: fixer
+    name: Security fixer
+    role: coding
+    extends: shared/fixer
+    timeoutSeconds: 1800
+  - id: verifier
+    name: Security verifier
+    role: verification
+    extends: shared/verifier
+    timeoutSeconds: 1200
+  - id: tester
+    name: Security regression tester
+    role: testing
+    extends: shared/tester
+    timeoutSeconds: 1200
+steps:
+  - id: audit
+    agent: scanner
+    type: single
+    input: |
+      Audit {{workspace}} for material security issues relevant to this request:
+
+      {{task}}
+
+      Inspect repository trust boundaries and dependencies. Produce STORIES_JSON containing only demonstrated, actionable findings, ordered by severity. End with STATUS: done.
+    expects: "STATUS: done"
+    maxRetries: 2
+  - id: remediate
+    agent: fixer
+    type: loop
+    over: stories
+    completion: all_done
+    freshSession: true
+    input: |
+      Remediate only this security finding:
+
+      {{current_story}}
+
+      Previous verification feedback:
+      {{verify_feedback}}
+
+      Preserve compatibility unless the finding requires a documented break, add regression coverage, report CHANGES, and end with STATUS: done.
+    expects: "STATUS: done"
+    maxRetries: 1
+    verifyEach: true
+    verifyStep: verify-remediation
+    repairInput: |
+      Repair completed remediations after the final audit failed.
+
+      {{issues}}
+
+      Completed remediation summary:
+      {{stories_summary}}
+
+      Make the smallest secure correction, report CHANGES, and end with STATUS: done.
+  - id: verify-remediation
+    agent: verifier
+    type: single
+    input: |
+      Verify this remediation against the original finding and current repository state:
+
+      {{current_story}}
+
+      Claimed changes:
+      {{changes}}
+
+      Test bypasses and regressions. End with STATUS: done, or STATUS: retry and ISSUES.
+    expects: "STATUS: done"
+    maxRetries: 1
+    onFail:
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human
+  - id: final-audit
+    agent: tester
+    type: single
+    input: |
+      Run the final security and regression checks for:
+
+      {{task}}
+
+      Confirm the completed remediations do not leave demonstrated bypasses. End with STATUS: done, or STATUS: retry and ISSUES.
+    expects: "STATUS: done"
+    maxRetries: 1
+    onFail:
+      retryStep: remediate
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human

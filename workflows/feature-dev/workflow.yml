@@ -1,0 +1,127 @@
+id: feature-dev
+name: Feature Development
+version: 1
+description: Plan, prepare, implement stories, verify each story, test, and review a feature.
+agents:
+  - id: planner
+    name: Feature planner
+    role: analysis
+    timeoutSeconds: 900
+  - id: setup
+    name: Workspace setup
+    role: coding
+    timeoutSeconds: 1200
+  - id: developer
+    name: Story developer
+    role: coding
+    timeoutSeconds: 1800
+  - id: verifier
+    name: Story verifier
+    role: verification
+    timeoutSeconds: 900
+  - id: tester
+    name: Test engineer
+    role: testing
+    timeoutSeconds: 1200
+  - id: reviewer
+    name: Final reviewer
+    role: verification
+    timeoutSeconds: 900
+steps:
+  - id: plan
+    agent: planner
+    type: single
+    input: |
+      Analyze this task in the repository at {{workspace}}:
+
+      {{task}}
+
+      Produce a bounded implementation plan as STORIES_JSON. Each story needs id, title, description, acceptanceCriteria, and maxRetries. Keep stories independently implementable and ordered. End with `STATUS: done`.
+    expects: "STATUS: done"
+    maxRetries: 2
+  - id: setup
+    agent: setup
+    type: single
+    input: |
+      Prepare {{workspace}} on {{branch}} for this task:
+
+      {{task}}
+
+      Inspect repository instructions, dependencies, and the current test baseline. Do not implement feature stories. Summarize useful setup facts in ordinary prose and end with `STATUS: done`.
+    expects: "STATUS: done"
+    maxRetries: 2
+  - id: implement
+    agent: developer
+    type: loop
+    over: stories
+    completion: all_done
+    freshSession: true
+    input: |
+      Implement only this story in {{workspace}} on {{branch}}:
+
+      {{current_story}}
+
+      Feedback from its previous verification attempt:
+      {{verify_feedback}}
+
+      Preserve unrelated work, run focused checks, report changed paths as `CHANGES: ...`, and end with `STATUS: done` when this story is ready for independent verification.
+    expects: "STATUS: done"
+    maxRetries: 1
+    verifyEach: true
+    verifyStep: verify-story
+    repairInput: |
+      Repair the completed implementation after a later quality gate failed.
+
+      Failure details:
+      {{issues}}
+
+      Completed story summary:
+      {{stories_summary}}
+
+      Inspect the current diff, make the smallest complete repair, run focused checks, report `CHANGES: ...`, and end with `STATUS: done`.
+  - id: verify-story
+    agent: verifier
+    type: single
+    input: |
+      Independently verify this story against the current repository state:
+
+      {{current_story}}
+
+      Claimed changes:
+      {{changes}}
+
+      Inspect the diff and run focused checks. End with `STATUS: done` when every acceptance criterion holds. Otherwise end with `STATUS: retry` and provide actionable `ISSUES: ...`.
+    expects: "STATUS: done"
+    maxRetries: 1
+    onFail:
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human
+  - id: test
+    agent: tester
+    type: single
+    input: |
+      Test the complete implementation for this task:
+
+      {{task}}
+
+      Run the relevant repository checks, inspect failures, and end with `STATUS: done` only when the implementation passes. Otherwise end with `STATUS: retry` and provide `ISSUES: ...`.
+    expects: "STATUS: done"
+    maxRetries: 1
+    onFail:
+      retryStep: implement
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human
+  - id: review
+    agent: reviewer
+    type: single
+    input: |
+      Review the complete implementation for correctness, regressions, missing tests, and scope. End with `STATUS: done` when no blocking finding remains. Otherwise end with `STATUS: retry` and provide `ISSUES: ...`.
+    expects: "STATUS: done"
+    maxRetries: 1
+    onFail:
+      retryStep: implement
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human
