@@ -92,7 +92,7 @@ pnpm test
 pnpm check:package
 ```
 
-`check:package` builds the package, runs `publint`, performs an npm pack dry run, and imports every Host JavaScript export through plain Node ESM. The browser-only `lib/client.js` loader artifact is discovered from the `dsh.client` manifest and is intentionally absent from the Node export map.
+`check:package` builds the package, runs `publint`, performs an npm pack dry run, and imports every Host JavaScript export through plain Node ESM. The browser-only `./client` export points to DSH's fixed `lib/client.js` module-loader artifact. It is discovered from the `dsh.client` manifest and is excluded from the plain Node ESM smoke because the artifact is a browser CJS factory wrapped for `window.__ModuleLoader__`.
 
 Node.js `^22.19 || >=24` is required.
 
