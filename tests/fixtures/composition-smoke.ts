@@ -3,13 +3,18 @@ import Loader, { Group } from '@deepseek-ai/cordis-plugin-loader'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import SubagentRuntime, { type SubagentProvider } from '@deepseek-ai/dsh-subagent'
-import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 
 class SmokeJobs extends Service {
   constructor(ctx: Context) {
     super(ctx, 'jobs')
+  }
+}
+
+class SmokeSubprocess extends Service {
+  constructor(ctx: Context) {
+    super(ctx, 'subprocess')
   }
 }
 
@@ -35,7 +40,7 @@ const hostFibers = await Promise.all([
   root.plugin(CommandRuntime),
   root.plugin(SmokeJobs),
   root.plugin(SubagentRuntime),
-  root.plugin(LocalSubprocessRuntime),
+  root.plugin(SmokeSubprocess),
   root.plugin(SystemPrompt),
 ])
 hostFibers.push(await root.plugin(ToolRuntime))
