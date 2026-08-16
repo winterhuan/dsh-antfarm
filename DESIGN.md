@@ -171,7 +171,7 @@ coordinator Session 不承载 run 真相；恢复时由 journal 重建 run，再
 
 ## 6. 执行状态机
 
-`ctx.antfarm.start({workflowId,task,parent,cwd?,provider?,model?,isolation?,signal?})` 先完成 workflow/cwd/provider 前置校验并预留 runId、branch、workspace path，再同步注册 owner=`parent`、kind=`antfarm` 的 `ctx.jobs` 作业。job starter 创建独立 AbortController；tool-call `signal` 只拥有提交前启动，工具返回后由 job cancel 拥有整个 run。worktree、coordinator 与 journal 在 job-owned async `done` 中创建；工具立即返回 `runId`,`jobId`,`workspace`,`branch`，后续创建失败表现为 job failed。
+`ctx.antfarm.start({workflowId?,task,parent,cwd?,provider?,model?,isolation?,signal?})` 先把省略的 workflow 解析为配置项 `defaultWorkflowId`，再完成 workflow/cwd/provider 前置校验并预留 runId、branch、workspace path，再同步注册 owner=`parent`、kind=`antfarm` 的 `ctx.jobs` 作业。job starter 创建独立 AbortController；tool-call `signal` 只拥有提交前启动，工具返回后由 job cancel 拥有整个 run。worktree、coordinator 与 journal 在 job-owned async `done` 中创建；工具立即返回 `runId`,`jobId`,`workspace`,`branch`，后续创建失败表现为 job failed。
 
 单 run 只有一个 driver：
 
@@ -266,14 +266,14 @@ Phase 1 实现进程内 start/cancel/fold 与 interrupted 检测；显式跨重�
 
 ### 8.1 Phase 1 tools
 
-- `antfarm_run`:参数 `workflow_id`,`task`,`cwd?`,`provider?`,`model?`,`isolation?`;成功返回 runId/jobId/workspace/branch/status。工具只在 `ctx.jobs` 已为 caller 配置 controller 时启动后台 run。
+- `antfarm_run`:参数 `task`,`workflow_id?`,`cwd?`,`provider?`,`model?`,`isolation?`;省略 `workflow_id` 时使用 runtime 的 `defaultWorkflowId`，成功返回 runId/jobId/workflowId/workspace/branch/status。工具只在 `ctx.jobs` 已为 caller 配置 controller 时启动后台 run。
 - `antfarm_list`:列出调用方可见 active/resumable run 的有界摘要；不返回完整 workflow/persona/journal。
 
 工具提示说明：antfarm 用于用户明确要求的团队工作流；普通单次委派仍用 subagent；run 在后台执行，状态由 job 工具或 antfarm_list 查询。
 
 ### 8.2 Phase 2 commands
 
-`/antfarm run|list|status|cancel|resume|cleanup` 是人类入口。命令和工具调用同一 `ctx.antfarm` 服务，不复制编排逻辑。
+`/antfarm <task>` 和 `/antfarm run <task>` 使用配置默认 workflow；`fix`、`audit`、`smoke` 显式选择内置专用 workflow，`run --workflow <id>` 选择自定义 workflow；`list|status|cancel|resume|cleanup` 控制已有 run。命令和工具调用同一 `ctx.antfarm` 服务，不复制编排逻辑。
 
 ## 9. medic 与可视化
 

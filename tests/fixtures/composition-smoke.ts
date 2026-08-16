@@ -67,9 +67,14 @@ try {
   if (root.get('antfarmStudio') === undefined) throw new Error('studio-host row did not provide antfarmStudio')
   if (root.subagents.getProvider('mock') !== mockProvider) throw new Error('mock subagent provider is not registered')
 
-  const toolNames = root.tools.schemas().map(schema => schema.name)
+  const toolSchemas = root.tools.schemas()
+  const toolNames = toolSchemas.map(schema => schema.name)
   for (const name of ['antfarm_run', 'antfarm_list', 'antfarm_status', 'antfarm_resume', 'antfarm_cancel', 'antfarm_cleanup']) {
     if (!toolNames.includes(name)) throw new Error(`tool row did not register ${name}`)
+  }
+  const runParameters = toolSchemas.find(schema => schema.name === 'antfarm_run')?.parameters as { required?: string[] } | undefined
+  if (runParameters?.required?.includes('task') !== true || runParameters.required.includes('workflow_id')) {
+    throw new Error('antfarm_run must require task and leave workflow_id optional')
   }
   if (root.commands.find({} as never, 'antfarm') === undefined) throw new Error('commands row did not register antfarm')
 

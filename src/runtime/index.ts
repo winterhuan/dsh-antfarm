@@ -26,6 +26,7 @@ const DEFAULT_ROLE_RESTRICTIONS: AntfarmRoleToolRestrictions = {
 export interface Config {
   readonly journalRoot: string
   readonly workflowDirs?: string[]
+  readonly defaultWorkflowId?: string
   readonly worktreeDirectory?: string
   readonly defaultIsolation?: 'worktree' | 'shared'
   readonly defaultStepTimeoutSeconds?: number
@@ -76,6 +77,7 @@ export class AntfarmRuntime extends Service {
   static Config: z<Config> = z.object({
     journalRoot: z.string().required(),
     workflowDirs: z.array(z.string()).default([]),
+    defaultWorkflowId: z.string().default('feature-dev'),
     worktreeDirectory: z.string().default('.worktrees/antfarm'),
     defaultIsolation: z.union(['worktree', 'shared'] as const).default('worktree'),
     defaultStepTimeoutSeconds: z.natural().min(1).max(Number.MAX_SAFE_INTEGER).default(1800),
@@ -108,7 +110,8 @@ export class AntfarmRuntime extends Service {
     if (request.task.trim() === '') throw new Error('antfarm task must not be empty')
     const cwd = await realpath(request.cwd ?? request.parent.session.header.cwd ?? process.cwd())
     const repository = await prepareRepository(this.ctx.subprocess, cwd, request.signal)
-    const workflow = await loadWorkflow(request.workflowId, [resolve(repository.root, '.antfarm/workflows'), ...this.workflowRoots])
+    const workflowId = request.workflowId ?? this.config.defaultWorkflowId ?? 'feature-dev'
+    const workflow = await loadWorkflow(workflowId, [resolve(repository.root, '.antfarm/workflows'), ...this.workflowRoots])
     const isolation = request.isolation ?? this.config.defaultIsolation ?? 'worktree'
     const provider = request.provider ?? this.config.subagentProvider ?? 'spawn'
     const registered = this.ctx.subagents.getProvider(provider)

@@ -3,7 +3,7 @@ import type { JobId } from '@deepseek-ai/dsh-jobs'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 
 export interface AntfarmStartRequest {
-  readonly workflowId: string
+  readonly workflowId?: string
   readonly task: string
   readonly parent: Agent
   readonly cwd?: string

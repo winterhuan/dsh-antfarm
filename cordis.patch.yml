@@ -8,6 +8,7 @@
         journalRoot: !!js dshHomePath('antfarm/runs')
         workflowDirs:
           - !!js dshHomePath('antfarm/workflows')
+        defaultWorkflowId: feature-dev
         worktreeDirectory: .worktrees/antfarm
         defaultIsolation: worktree
         defaultStepTimeoutSeconds: 1800

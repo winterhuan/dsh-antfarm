@@ -36,8 +36,8 @@ export function apply(ctx: Context): void {
     name: 'antfarm_run',
     description: 'Start a declared antfarm team workflow in the background. Use this only when the user explicitly requests an antfarm or multi-agent team workflow; use ordinary subagent delegation for a single focused task.',
     parameters: {
-      workflow_id: { type: 'string', required: true, description: 'Workflow id, such as smoke.' },
       task: { type: 'string', required: true, description: 'Complete task for the workflow team.' },
+      workflow_id: { type: 'string', description: 'Optional workflow id. Omit it to use the configured default, normally feature-dev.' },
       cwd: { type: 'string', description: 'Git working directory. Defaults to the caller session workspace.' },
       provider: { type: 'string', description: 'Registered subagent provider. Defaults to the plugin configuration.' },
       model: { type: 'string', description: 'Optional model override for workflow agents.' },
@@ -53,8 +53,8 @@ export function apply(ctx: Context): void {
       const parent = exec.agent
       if (parent === undefined) throw new Error('antfarm_run requires an initiating agent')
       const receipt = await ctx.antfarm.start({
-        workflowId: args.workflow_id,
         task: args.task,
+        ...(args.workflow_id === undefined ? {} : { workflowId: args.workflow_id }),
         parent,
         ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
         ...(args.provider === undefined ? {} : { provider: args.provider }),

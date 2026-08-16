@@ -40,21 +40,28 @@ Run `pnpm install` and `pnpm build` from this repository before adding its absol
 Start a DSH session with the installed profile and call:
 
 ```text
-antfarm_run({ workflow_id: "smoke", task: "..." })
+antfarm_run({ task: "implement payment callbacks" })
 ```
 
-The tool returns the reserved run, job, worktree, and branch immediately. The full agent tool set is `antfarm_run`, `antfarm_list`, `antfarm_status`, `antfarm_cancel`, `antfarm_resume`, and `antfarm_cleanup`. Use `antfarm_list`, `antfarm_status`, or the standard jobs tools to inspect progress.
+The tool uses the configured `defaultWorkflowId`, normally `feature-dev`. Pass `workflow_id` only when selecting another workflow. It returns the reserved run, job, worktree, and branch immediately. The full agent tool set is `antfarm_run`, `antfarm_list`, `antfarm_status`, `antfarm_cancel`, `antfarm_resume`, and `antfarm_cleanup`. Use `antfarm_list`, `antfarm_status`, or the standard jobs tools to inspect progress.
 
-Human-facing commands use the same runtime:
+Human-facing commands use the same default and provide shortcuts for bundled workflows:
 
 ```text
-/antfarm run <workflow> <task...>
+/antfarm <task...>
+/antfarm run <task...>
+/antfarm fix <task...>
+/antfarm audit <task...>
+/antfarm smoke <task...>
+/antfarm run --workflow <id> <task...>
 /antfarm list
 /antfarm status <runId>
 /antfarm cancel <runId> [reason...]
 /antfarm resume <runId> [guidance...]
 /antfarm cleanup <runId>
 ```
+
+`fix`, `audit`, and `smoke` select `bug-fix`, `security-audit`, and `smoke`. Use the explicit `run` form when task text begins with a reserved command word.
 
 Resume is explicit: startup reconciles non-terminal journals without starting model work, and `resume` continues a blocked or interrupted run in a fresh background job. The original owner must initiate it. Resume rejects terminal or active runs and worktrees whose recorded branch or HEAD no longer matches; it does not overwrite manual changes.
 
