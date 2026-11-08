@@ -5,6 +5,7 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AntfarmSessionId } from '../types.ts'
 import type { WorkflowDraft } from '../workflow/types.ts'
 import type { AntfarmOperations } from './operations.ts'
+import { TeamPanel } from './TeamPanel.tsx'
 import css from './RunsPanel.module.css'
 
 interface Props extends PropsLocale<'antfarmRuns'> {
@@ -32,8 +33,8 @@ export function WorkflowPanel({ owner, visible, operations, launched, t }: Props
   const [editor, setEditor] = useState(initial?.editor ?? false)
   const [discard, setDiscard] = useState(false)
   const [request, setRequest] = useState<{ task: string; workflowId: string; owner: AntfarmSessionId; id: string } | null>(initial?.request ?? null)
-  const id = selected.owner === owner ? selected.id : ''
   const ids = catalog.owner === owner ? catalog.ids : []
+  const id = selected.owner === owner && selected.id !== '' ? selected.id : ids.includes('feature-dev') ? 'feature-dev' : ids[0] ?? ''
   const dirty = draft !== null && source !== null && (draft.document !== source.document || JSON.stringify(draft.files) !== JSON.stringify(source.files))
 
   useEffect(() => {
@@ -51,7 +52,7 @@ export function WorkflowPanel({ owner, visible, operations, launched, t }: Props
       const retained = operations.readDraft(owner)
       const edited = retained?.source !== null && retained?.source !== undefined && retained.draft !== null && (retained.source.document !== retained.draft.document || JSON.stringify(retained.source.files) !== JSON.stringify(retained.draft.files))
       setLatest(value)
-      if (edited) { if (retained.source?.revision !== value.revision) setError(t('staleDraft')); return }
+      if (edited && retained.id === id) { if (retained.source?.revision !== value.revision) setError(t('staleDraft')); return }
       setSource(value); setDraft(value); setFile('workflow.yml'); setError('')
       operations.rememberDraft(owner, { id, source: value, draft: value, file: 'workflow.yml' })
     }).catch(() => { if (!abort.signal.aborted) setError(t('workflowError')) })
@@ -105,11 +106,14 @@ export function WorkflowPanel({ owner, visible, operations, launched, t }: Props
     <label>{t('workflow')}<select value={id} disabled={pending || dirty} onChange={event => { setSelected({ owner, id: event.target.value }); setSource(null); setDraft(null); operations.rememberDraft(owner, { id: event.target.value, source: null, draft: null }) }}>
       <option value="">{t('chooseWorkflow')}</option>{ids.map(id => <option key={id} value={id}>{id}</option>)}
     </select></label>
+    {draft?.id === id && <TeamPanel draft={draft} pending={pending} t={t} change={next => { setDraft(next); operations.rememberDraft(owner, { draft: next }) }} />}
     <label>{t('task')}<textarea value={task} maxLength={65536} disabled={pending} onChange={event => { setTask(event.target.value); operations.rememberDraft(owner, { task: event.target.value }) }} /></label>
     <p className={css.secondary}>{t('launchHelp')}</p>
     <div className={css.actions}><Button size="sm" disabled={pending || id === '' || source?.id !== id || source.enabled === false || task.trim() === '' || dirty} onClick={() => { void start() }}>{t('startRun')}</Button>
-      <Button size="sm" disabled={id === '' || draft === null} onClick={() => { setEditor(!editor); operations.rememberDraft(owner, { editor: !editor }) }}>{t('editWorkflow')}</Button></div>
-    {error !== '' && <p className={css.notice} role="status">{error}</p>}
+      {dirty && <Button size="sm" disabled={pending} onClick={() => { void save() }}>{t('save')}</Button>}
+      <Button size="sm" disabled={id === '' || draft === null} onClick={() => { setEditor(!editor); operations.rememberDraft(owner, { editor: !editor }) }}>{t('advancedConfig')}</Button></div>
+    {dirty && <p className={css.secondary}>{t('unsavedDraft')}</p>}
+    {error !== '' && <div className={css.notice} role="status"><p>{error}</p><Button size="sm" disabled={pending} onClick={() => { setReload(value => value + 1) }}>{t('retry')}</Button></div>}
     {editor && draft?.id === id && <section className={css.form}>
       <p className={css.secondary}>{t('source')}: <code>{source?.sourceDirectory}</code></p>
       <p className={css.secondary}>{t('editHelp')}</p>
@@ -118,10 +122,8 @@ export function WorkflowPanel({ owner, visible, operations, launched, t }: Props
       <label>{t('resource')}<select value={file} onChange={event => { setFile(event.target.value); operations.rememberDraft(owner, { file: event.target.value }) }}><option value="workflow.yml">workflow.yml</option>{Object.keys(draft.files).map(path => <option key={path} value={path}>{path}</option>)}</select></label>
       <textarea className={css.editor} aria-label={t('workflowSource')} value={file === 'workflow.yml' ? draft.document : draft.files[file] ?? ''} disabled={pending} onChange={event => { const next = file === 'workflow.yml' ? { ...draft, document: event.target.value } : { ...draft, files: { ...draft.files, [file]: event.target.value } }; setDraft(next); operations.rememberDraft(owner, { draft: next }) }} />
       {latest !== null && latest.revision !== source?.revision && <details><summary>{t('compareSource')}</summary><pre className={css.output}>{file === 'workflow.yml' ? latest.document : latest.files[file] ?? ''}</pre></details>}
-      <div className={css.actions}><Button size="sm" disabled={pending || !dirty} onClick={() => { void save() }}>{t('save')}</Button>
-        <Button size="sm" disabled={pending} onClick={() => { if (dirty) setDiscard(true); else setReload(value => value + 1) }}>{t('reload')}</Button>
+      <div className={css.actions}><Button size="sm" disabled={pending} onClick={() => { if (dirty) setDiscard(true); else setReload(value => value + 1) }}>{t('reload')}</Button>
         <Button size="sm" disabled={pending || dirty} onClick={() => { setDiscard(true) }}>{t('restoreInherited')}</Button></div>
-      {dirty && <p className={css.secondary}>{t('unsavedDraft')}</p>}
       <label>{t('newWorkflowId')}<input value={newId} disabled={pending} onChange={event => { setNewId(event.target.value) }} /></label>
       <Button size="sm" disabled={pending || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(newId)} onClick={() => { void copy() }}>{t('copyWorkflow')}</Button>
       {discard && <div className={css.notice}><p>{t(dirty ? 'discardHelp' : 'removeHelp')}</p><div className={css.actions}>

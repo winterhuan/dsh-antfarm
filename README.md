@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Inspect step outputs, stories and native transcripts from the sidebar or workflow board. Version `0.3.1` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
+Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Configure Agents, start tasks and inspect step outputs, stories and native transcripts on the workflow board. Version `0.3.2` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
 
 ## Table of Contents
 
@@ -34,7 +34,7 @@ Install the immutable release tag into a Web profile:
 If this profile has the unscoped `dsh-antfarm` package, remove that layer with `dsh plugin --profile web remove dsh-antfarm` before installing the scoped release.
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.1
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.2
 ```
 
 For source development:
@@ -57,7 +57,11 @@ Restart the development service and hard-refresh Web after rebuilding. Remove th
 
 ### Start and inspect
 
-Start from a root Session with a project cwd. Coding teams use Git and GitHub CLI through their original agent instructions; prepare the repository, dependencies and credentials appropriate to the task. The selected workflow authorizes its declared PR actions.
+Open **Antfarm workflow board** on the left, select a root Session with a project cwd, then choose a workflow and describe the task. The feature-development team appears by default; bug-fix and security-audit teams are also available. Review the team and click **Start run** without entering a command or opening the right sidebar.
+
+Expand an Agent to edit its name, model, timeout and persona files. Click **Validate and save** before starting; new tasks use the saved configuration. An empty model inherits the workflow model or DSH default. **Advanced configuration** contains the complete YAML, save location, copy and override-removal controls.
+
+You can also start from a root Session with a project cwd using the commands below. Coding teams use Git and GitHub CLI through their original agent instructions; prepare the repository, dependencies and credentials appropriate to the task. The selected workflow authorizes its declared PR actions.
 
 ```text
 /antfarm run --workflow feature-dev implement payment callbacks
@@ -74,7 +78,7 @@ Start from a root Session with a project cwd. Coding teams use Git and GitHub CL
 
 The short form `/antfarm <task...>` uses `feature-dev` by default. The model has `antfarm_run`, `antfarm_list`, `antfarm_status`, `antfarm_resume` and `antfarm_cancel`. Run/resume tools wait for the workflow outcome unless `background: true`; commands and panel starts return an admission receipt. All reads and controls check the original root Session owner.
 
-Open **Antfarm** in the right sidebar to select a workflow and inspect its steps, outputs, stories, events and child Sessions. The global workflow board shows explicitly authorized Sessions. Lists use fifty-row pages; visible views refresh, hidden views stop polling, and failed refreshes retain loaded content.
+The global board shows explicitly authorized Sessions and runs; its team and launch form remain available when there are no runs. You can also open **Antfarm** in the right sidebar to configure a team, start a run and inspect its steps, outputs, stories, events and child Sessions. Lists use fifty-row pages; visible views refresh, hidden views stop polling, and failed refreshes retain loaded content.
 
 ### Recovery and retained files
 

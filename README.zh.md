@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。通过侧栏或工作流看板查看步骤输出、故事与原生会话记录。版本 `0.3.1` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
+在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。在工作流看板配置 Agent、启动任务并查看步骤输出、故事与原生会话记录。版本 `0.3.2` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
 
 ## 目录
 
@@ -34,7 +34,7 @@ kind: "package-bundle"
 若此 profile 已安装无 scope 的 `dsh-antfarm`，先使用 `dsh plugin --profile web remove dsh-antfarm` 移除旧安装层，再安装带 scope 的发布包。
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.1
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.2
 ```
 
 源码开发使用：
@@ -57,7 +57,11 @@ dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh
 
 ### 启动与查看
 
-从具有项目 cwd 的根 Session 启动。编码团队按照原版 agent 指令使用 Git 与 GitHub CLI；请准备任务所需的仓库、依赖与凭据。所选工作流包含其声明的 PR 操作。
+在左侧打开 **Antfarm 工作流看板**，选择具有项目 cwd 的根会话，再选择工作流并填写任务。默认显示功能开发团队；也可以选择缺陷修复或安全审计。查看团队后点击 **启动运行**，无需输入命令或打开右侧栏。
+
+展开团队中的 Agent，可编辑名称、模型、超时和人设文件。点击 **校验并保存** 后启动，新任务使用保存的配置；模型留空时继承工作流模型或 DSH 默认模型。完整 YAML、保存位置、复制和移除覆盖副本位于 **高级配置**。
+
+也可以从具有项目 cwd 的根 Session 使用以下命令启动。编码团队按照原版 agent 指令使用 Git 与 GitHub CLI；请准备任务所需的仓库、依赖与凭据。所选工作流包含其声明的 PR 操作。
 
 ```text
 /antfarm run --workflow feature-dev implement payment callbacks
@@ -74,7 +78,7 @@ dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh
 
 简写 `/antfarm <task...>` 默认使用 `feature-dev`。模型拥有 `antfarm_run`、`antfarm_list`、`antfarm_status`、`antfarm_resume` 和 `antfarm_cancel`。Run/resume 工具等待工作流结果，除非设置 `background: true`；命令和面板启动返回准入回执。所有读取与控制均检查原根 Session 的归属。
 
-打开右侧栏的 **Antfarm**，选择工作流并查看步骤、输出、故事、事件和子 Session。全局工作流看板展示明确授权的 Session。列表每页五十条；可见视图刷新，隐藏视图停止轮询，刷新失败时保留已加载内容。
+全局看板展示明确授权的会话及运行；没有运行时仍显示团队和启动表单。也可以打开右侧栏的 **Antfarm**，配置团队、启动并查看步骤、输出、故事、事件和子 Session。列表每页五十条；可见视图刷新，隐藏视图停止轮询，刷新失败时保留已加载内容。
 
 ### 恢复与保留文件
 

@@ -10,6 +10,14 @@ import { en, zh } from '../src/client/locales.ts'
 import { useAntfarmRuns, type AntfarmQueries, type AntfarmViewState } from '../src/client/queries.ts'
 import { Config } from '../src/client/config.ts'
 import { mountAntfarm } from '../src/client/mount.tsx'
+import { BoardPanel } from '../src/client/BoardPanel.tsx'
+import { WorkflowPanel } from '../src/client/WorkflowPanel.tsx'
+import type { AntfarmEditorDraft, AntfarmOperations } from '../src/client/operations.ts'
+import { WorkflowManager } from '../src/workflow/manager.ts'
+import { parseWorkflowDocument } from '../src/workflow/loader.ts'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // The published primitive barrel depends on the Web shell's shared modules; this unit lane exercises Antfarm's content and actions.
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
@@ -222,4 +230,80 @@ it('rolls back registered UI and the Remote when sidebar mounting fails', async 
   await expect(mountAntfarm(fixture.ctx, { package: '@winterhuan/dsh-antfarm', descriptors: [] }, Config({ refreshIntervalMs: 2000 }))).rejects.toThrow('body registration failed')
   expect(fixture.count).toEqual({ dictionaries: 0, tabs: 0, bodies: 0, remotes: 0, overlays: 0, boards: 0, launchers: 0 })
   expect(fixture.events.at(-1)).toBe('release:remotes')
+})
+
+async function editorFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'antfarm-client-editor-'))
+  const manager = new WorkflowManager(join(import.meta.dirname, '../workflows'))
+  const drafts = new Map<string, AntfarmEditorDraft>()
+  const operations: AntfarmOperations = {
+    readDraft: owner => drafts.get(owner),
+    rememberDraft: (owner, patch) => { drafts.set(owner, { id: '', task: '', source: null, draft: null, scope: 'project', file: 'workflow.yml', editor: false, ...drafts.get(owner), ...patch }) },
+    workflows: vi.fn(async () => manager.list([root])),
+    workflow: vi.fn(async id => manager.read(id, [root])),
+    save: vi.fn(async draft => manager.save(draft, root, [root])),
+    start: vi.fn(async request => ({ ...row, ownerSessionId: request.sessionId, task: request.task })),
+    control: vi.fn(), remove: vi.fn(), copy: vi.fn(), setEnabled: vi.fn(), events: vi.fn(), health: vi.fn(), healthHistory: vi.fn(), ensureExecution: vi.fn(), report: vi.fn(),
+  }
+  return { manager, root, operations, dispose: () => rm(root, { recursive: true, force: true }) }
+}
+
+it('shows the team and launch form on a board without Runs and starts in the selected project Session', async () => {
+  const fixture = await editorFixture()
+  const next = SessionId('another-project')
+  const queries: AntfarmQueries = { list: async () => [], status: async () => detail }
+  const listing = { ids: [owner, next], byId: { [owner]: { id: owner, cwd: '/repo', displayTitle: 'Project one' }, [next]: { id: next, cwd: '/another', displayTitle: 'Project two' } } }
+  try {
+    render(<BoardPanel useSessions={select => select(listing)} usePanelInfo={select => select({ activePanelId: 'antfarm-board' })} useRefreshInterval={select => select(2000)} queries={() => queries} operations={fixture.operations} openChild={vi.fn()} t={key => en[key]} />)
+    await screen.findByText('Planner')
+    expect(screen.getByText(en.emptyBoard)).toBeTruthy()
+    expect(screen.getAllByText('Developer')).toHaveLength(1)
+    fireEvent.change(screen.getByLabelText(en.projectSession), { target: { value: next } })
+    await waitFor(() => { expect(fixture.operations.workflow).toHaveBeenLastCalledWith('feature-dev', next, expect.any(AbortSignal)) })
+    await screen.findByText('Planner')
+    fireEvent.change(screen.getByLabelText(en.task), { target: { value: 'Build the requested feature' } })
+    fireEvent.click(screen.getByRole('button', { name: en.startRun }))
+    await waitFor(() => { expect(fixture.operations.start).toHaveBeenCalledOnce() })
+    expect(fixture.operations.start).toHaveBeenCalledWith(expect.objectContaining({ sessionId: next, workflowId: 'feature-dev', task: 'Build the requested feature' }))
+  } finally { cleanup(); await fixture.dispose() }
+})
+
+it('saves Agent model and persona settings through the existing revision checks and preserves workflow steps', async () => {
+  const fixture = await editorFixture()
+  const before = await fixture.manager.read('feature-dev', [fixture.root])
+  try {
+    render(<WorkflowPanel owner={owner} visible operations={fixture.operations} launched={vi.fn()} t={key => en[key]} />)
+    await screen.findByText('Planner')
+    fireEvent.change(screen.getAllByLabelText(en.agentModel)[0]!, { target: { value: 'configured-planner-model' } })
+    fireEvent.change(screen.getAllByLabelText(en.persona)[0]!, { target: { value: 'Plan only the requested change.' } })
+    fireEvent.change(screen.getByLabelText(en.task), { target: { value: 'A task' } })
+    expect(screen.getByRole('button', { name: en.startRun }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: en.save }))
+    await waitFor(() => { expect(screen.queryByText(en.unsavedDraft)).toBeNull() })
+    const saved = await fixture.manager.read('feature-dev', [fixture.root])
+    expect(saved.revision).not.toBe(before.revision)
+    expect(parseWorkflowDocument(saved.document).agents[0]?.model).toBe('configured-planner-model')
+    expect(saved.files['agents/planner/AGENTS.md']).toBe('Plan only the requested change.')
+    expect(parseWorkflowDocument(saved.document).steps).toEqual(parseWorkflowDocument(before.document).steps)
+    expect(saved.files['agents/developer/AGENTS.md']).toBe(before.files['agents/developer/AGENTS.md'])
+    expect(screen.getByRole('button', { name: en.startRun }).hasAttribute('disabled')).toBe(false)
+  } finally { cleanup(); await fixture.dispose() }
+})
+
+it('retains Agent edits when leaving and returning to the project Session', async () => {
+  const fixture = await editorFixture()
+  try {
+    const view = render(<WorkflowPanel key={owner} owner={owner} visible operations={fixture.operations} launched={vi.fn()} t={key => en[key]} />)
+    await screen.findByText('Planner')
+    fireEvent.change(screen.getAllByLabelText(en.agentModel)[0]!, { target: { value: 'unsaved-model' } })
+    view.rerender(<WorkflowPanel key="next" owner={SessionId('next')} visible operations={fixture.operations} launched={vi.fn()} t={key => en[key]} />)
+    await screen.findByText('Planner')
+    view.rerender(<WorkflowPanel key={owner} owner={owner} visible operations={fixture.operations} launched={vi.fn()} t={key => en[key]} />)
+    await waitFor(() => { expect(screen.getAllByLabelText(en.agentModel)[0]).toHaveProperty('value', 'unsaved-model') })
+    expect(screen.getByText(en.unsavedDraft)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.advancedConfig }))
+    fireEvent.change(screen.getByLabelText(en.workflowSource), { target: { value: 'agents: [' } })
+    expect(screen.getByText(en.invalidTeamSource)).toBeTruthy()
+    expect(screen.getByLabelText(en.workflowSource)).toHaveProperty('value', 'agents: [')
+  } finally { cleanup(); await fixture.dispose() }
 })
