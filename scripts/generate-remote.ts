@@ -22,7 +22,7 @@ try {
   const options = JSON.parse(await readFile(join(root, 'tsconfig.host.json'), 'utf8')).compilerOptions
   options.paths = { '@deepseek-ai/dsh-typert-protocol': [join(protocolDir, 'src/index.d.ts')] }
   await writeFile(join(temporary, 'tsconfig.host.json'), JSON.stringify({ compilerOptions: options, files: [], references: [{ path: './packages/antfarm/tsconfig.host.json' }, { path: './packages/protocol/tsconfig.json' }] }))
-  const model = new WorkspaceAnalyzer({ root: temporary, packages: ['dsh-antfarm'], faces: ['host'], checkDiagnostics: false }).analyze()
+  const model = new WorkspaceAnalyzer({ root: temporary, packages: ['@winterhuan/dsh-antfarm'], faces: ['host'], checkDiagnostics: false }).analyze()
   const artifacts = model.faces.flatMap(face => face.packages.map(item => new FaceModelEmitter(face).emit(item.name)))
   if (!artifacts.some(artifact => artifact.remote !== undefined)) throw new Error('Antfarm Remote was not generated')
   writePackageArtifacts(root, artifacts)

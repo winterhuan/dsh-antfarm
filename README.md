@@ -3,13 +3,13 @@ description: "Original Antfarm teams, persona identities, SQLite progress and na
 kind: "package-bundle"
 ---
 
-# dsh-antfarm
+# @winterhuan/dsh-antfarm
 
 English | [中文](README.zh.md)
 
 ## Summary
 
-Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Inspect step outputs, stories and native transcripts from the sidebar or workflow board. Version `0.3.0` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
+Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Inspect step outputs, stories and native transcripts from the sidebar or workflow board. Version `0.3.1` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
 
 ## Table of Contents
 
@@ -31,8 +31,10 @@ Use Node.js `^22.19 || >=24`, pnpm `11.7.0` and a DSH `0.2.2-rc.1` Web profile p
 
 Install the immutable release tag into a Web profile:
 
+If this profile has the unscoped `dsh-antfarm` package, remove that layer with `dsh plugin --profile web remove dsh-antfarm` before installing the scoped release.
+
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.0
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.1
 ```
 
 For source development:
@@ -51,7 +53,7 @@ dsh --profile antfarm-dev --from-default-profile web --dump-config > /dev/null
 dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh-antfarm
 ```
 
-Restart the development service and hard-refresh Web after rebuilding. Remove the layer with `dsh plugin --profile antfarm-dev remove dsh-antfarm`. Daily profiles use the fixed remote release described in the [repository handoff](https://github.com/winterhuan/dsh-creative/blob/develop/HANDOFF.md#5-在-dsh-中安装调试和移除); source edits do not update them.
+Restart the development service and hard-refresh Web after rebuilding. Remove the layer with `dsh plugin --profile antfarm-dev remove @winterhuan/dsh-antfarm`. Daily profiles use the fixed remote release described in the [repository handoff](https://github.com/winterhuan/dsh-creative/blob/develop/HANDOFF.md#5-在-dsh-中安装调试和移除); source edits do not update them.
 
 ### Start and inspect
 

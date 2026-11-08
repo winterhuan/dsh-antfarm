@@ -208,7 +208,7 @@ function mountFixture(failBody = false) {
 
 it('mounts the Remote before readers and withdraws the complete sidebar', async () => {
   const fixture = mountFixture()
-  const dispose = await mountAntfarm(fixture.ctx, { package: 'dsh-antfarm', descriptors: [] }, Config({ refreshIntervalMs: 2000 }))
+  const dispose = await mountAntfarm(fixture.ctx, { package: '@winterhuan/dsh-antfarm', descriptors: [] }, Config({ refreshIntervalMs: 2000 }))
   try {
     expect(fixture.events.slice(0, 3)).toEqual(['mount:remote', 'mount:tab', 'mount:body'])
     expect(fixture.count).toEqual({ dictionaries: 1, tabs: 1, bodies: 1, remotes: 1, overlays: 1, boards: 1, launchers: 1 })
@@ -219,7 +219,7 @@ it('mounts the Remote before readers and withdraws the complete sidebar', async 
 
 it('rolls back registered UI and the Remote when sidebar mounting fails', async () => {
   const fixture = mountFixture(true)
-  await expect(mountAntfarm(fixture.ctx, { package: 'dsh-antfarm', descriptors: [] }, Config({ refreshIntervalMs: 2000 }))).rejects.toThrow('body registration failed')
+  await expect(mountAntfarm(fixture.ctx, { package: '@winterhuan/dsh-antfarm', descriptors: [] }, Config({ refreshIntervalMs: 2000 }))).rejects.toThrow('body registration failed')
   expect(fixture.count).toEqual({ dictionaries: 0, tabs: 0, bodies: 0, remotes: 0, overlays: 0, boards: 0, launchers: 0 })
   expect(fixture.events.at(-1)).toBe('release:remotes')
 })

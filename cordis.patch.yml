@@ -1,15 +1,15 @@
 - insert:
     - id: antfarm-client-anchor
-      name: dsh-antfarm
+      name: '@winterhuan/dsh-antfarm'
     - id: antfarm-runtime
-      name: dsh-antfarm/runtime
+      name: '@winterhuan/dsh-antfarm/runtime'
       config:
         journalRoot: !!js dshHomePath('antfarm/runs')
         workflowDirs:
           - !!js dshHomePath('antfarm/workflows')
     - id: antfarm-studio-host
-      name: dsh-antfarm/studio-host
+      name: '@winterhuan/dsh-antfarm/studio-host'
     - id: antfarm-tool
-      name: dsh-antfarm/tool
+      name: '@winterhuan/dsh-antfarm/tool'
     - id: antfarm-commands
-      name: dsh-antfarm/commands
+      name: '@winterhuan/dsh-antfarm/commands'

@@ -76,7 +76,7 @@ async function executeAntfarm(ctx: Context, invocation: CommandInvocation): Prom
   if (command === undefined) return { kind: 'error', text: USAGE }
   switch (command.action) {
     case 'help': return { kind: 'success', text: USAGE }
-    case 'version': return { kind: 'success', text: 'dsh-antfarm 0.3.0; original Antfarm YAML and SQLite' }
+    case 'version': return { kind: 'success', text: '@winterhuan/dsh-antfarm 0.3.1; original Antfarm YAML and SQLite' }
     case 'ant': return { kind: 'success', text: 'Antfarm: install a specialist team, run bounded work, and verify its delivery.' }
     case 'health': return { kind: 'success', text: JSON.stringify(await ctx.antfarm.checkHealth(invocation.agent.id), null, 2) }
     case 'ensure-execution': return { kind: 'success', text: `Dispatched: ${(await ctx.antfarm.ensureExecution(invocation.agent.id)).join(', ') || 'no safely resumable work'}` }

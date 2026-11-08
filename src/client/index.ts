@@ -1,6 +1,6 @@
 /** Browser entry: mount the run-inspection Remote and the Antfarm sidebar. */
 import type { Context } from '@deepseek-ai/cordis'
-import antfarmRemote from 'dsh-antfarm/remote'
+import antfarmRemote from '@winterhuan/dsh-antfarm/remote'
 import { mountAntfarm } from './mount.tsx'
 import { Config } from './config.ts'
 

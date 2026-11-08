@@ -29,7 +29,7 @@ import type {
   AntfarmStatus,
 } from '../types.ts'
 import type { AntfarmResumeRequest, AntfarmRunReceipt, AntfarmStartRequest } from './types.ts'
-const PACKAGE_ROOT = dirname(fileURLToPath(import.meta.resolve('dsh-antfarm/package.json')))
+const PACKAGE_ROOT = dirname(fileURLToPath(import.meta.resolve('@winterhuan/dsh-antfarm/package.json')))
 interface Operation {
   owner: SessionId
   controller: AbortController

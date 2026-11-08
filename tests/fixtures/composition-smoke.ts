@@ -51,10 +51,10 @@ try {
   await root.plugin(Loader, { baseUrl: import.meta.url })
   root.loader.builtins.group = Group
   const rows = [
-    { id: 'runtime', name: import.meta.resolve('dsh-antfarm/runtime'), config: { journalRoot: join(journalRoot, 'runs'), workflowDirs: [] } },
-    { id: 'tool', name: import.meta.resolve('dsh-antfarm/tool') },
-    { id: 'commands', name: import.meta.resolve('dsh-antfarm/commands') },
-    { id: 'studio-host', name: import.meta.resolve('dsh-antfarm/studio-host') },
+    { id: 'runtime', name: import.meta.resolve('@winterhuan/dsh-antfarm/runtime'), config: { journalRoot: join(journalRoot, 'runs'), workflowDirs: [] } },
+    { id: 'tool', name: import.meta.resolve('@winterhuan/dsh-antfarm/tool') },
+    { id: 'commands', name: import.meta.resolve('@winterhuan/dsh-antfarm/commands') },
+    { id: 'studio-host', name: import.meta.resolve('@winterhuan/dsh-antfarm/studio-host') },
   ]
   const groupId = await root.loader.create({ name: 'cordis:group', group: true, config: rows })
   await root.loader.await()

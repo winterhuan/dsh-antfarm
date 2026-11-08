@@ -1,6 +1,6 @@
 {
-  "name": "dsh-antfarm",
-  "version": "0.3.0",
+  "name": "@winterhuan/dsh-antfarm",
+  "version": "0.3.1",
   "description": "Declarative multi-agent team workflows for DeepSeek Harness",
   "license": "MIT",
   "repository": {
@@ -108,7 +108,7 @@
     "build": "pnpm run build:host && pnpm run build:client",
     "typecheck": "pnpm run build:host && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
-    "check:package": "pnpm run build && publint && npm pack --dry-run && node --input-type=module -e \"await Promise.all(['dsh-antfarm','dsh-antfarm/runtime','dsh-antfarm/tool','dsh-antfarm/commands','dsh-antfarm/studio-host'].map(specifier => import(specifier)))\"",
+    "check:package": "pnpm run build && publint && npm pack --dry-run && node --input-type=module -e \"await Promise.all(['@winterhuan/dsh-antfarm','@winterhuan/dsh-antfarm/runtime','@winterhuan/dsh-antfarm/tool','@winterhuan/dsh-antfarm/commands','@winterhuan/dsh-antfarm/studio-host'].map(specifier => import(specifier)))\"",
     "build:host": "tsc -p tsconfig.host.json && tsdown && tsx scripts/generate-remote.ts",
     "build:client": "tsc -p tsconfig.client.json && tsdown --config tsdown.client.config.ts --env.DSH_BUILD_FACE=client"
   },

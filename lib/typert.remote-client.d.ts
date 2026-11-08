@@ -4,8 +4,8 @@ import type {
   TypertRemoteInfo,
   TypertRemoteMethod,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from 'dsh-antfarm/types'
-import type { WorkflowDraft } from 'dsh-antfarm/workflow/types'
+import type { AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from '@winterhuan/dsh-antfarm/types'
+import type { WorkflowDraft } from '@winterhuan/dsh-antfarm/workflow/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$616e746661726d53747564696f {

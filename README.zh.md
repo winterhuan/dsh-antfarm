@@ -3,13 +3,13 @@ description: "原版 Antfarm 团队、人设身份、SQLite 进度与原生 DSH 
 kind: "package-bundle"
 ---
 
-# dsh-antfarm
+# @winterhuan/dsh-antfarm
 
 [English](README.md) | 中文
 
 ## 概述
 
-在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。通过侧栏或工作流看板查看步骤输出、故事与原生会话记录。版本 `0.3.0` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
+在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。通过侧栏或工作流看板查看步骤输出、故事与原生会话记录。版本 `0.3.1` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
 
 ## 目录
 
@@ -31,8 +31,10 @@ kind: "package-bundle"
 
 将不可变发布标签安装到 Web profile：
 
+若此 profile 已安装无 scope 的 `dsh-antfarm`，先使用 `dsh plugin --profile web remove dsh-antfarm` 移除旧安装层，再安装带 scope 的发布包。
+
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.0
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.1
 ```
 
 源码开发使用：
@@ -51,7 +53,7 @@ dsh --profile antfarm-dev --from-default-profile web --dump-config > /dev/null
 dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh-antfarm
 ```
 
-重新构建后重启开发服务并硬刷新 Web。使用 `dsh plugin --profile antfarm-dev remove dsh-antfarm` 移除此层。日常 profile 使用[仓库交接](https://github.com/winterhuan/dsh-creative/blob/develop/HANDOFF.md#5-在-dsh-中安装调试和移除)中记录的固定远程发布包；源码修改不会更新日常安装。
+重新构建后重启开发服务并硬刷新 Web。使用 `dsh plugin --profile antfarm-dev remove @winterhuan/dsh-antfarm` 移除此层。日常 profile 使用[仓库交接](https://github.com/winterhuan/dsh-creative/blob/develop/HANDOFF.md#5-在-dsh-中安装调试和移除)中记录的固定远程发布包；源码修改不会更新日常安装。
 
 ### 启动与查看
 
