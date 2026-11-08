@@ -106,7 +106,6 @@
     "typecheck": "pnpm run build:host && tsc -p tsconfig.client.json --noEmit",
     "test": "vitest run",
     "check:package": "pnpm run build && publint && npm pack --dry-run && node --input-type=module -e \"await Promise.all(['dsh-antfarm','dsh-antfarm/runtime','dsh-antfarm/tool','dsh-antfarm/commands','dsh-antfarm/studio-host'].map(specifier => import(specifier)))\"",
-    "prepare": "pnpm run build",
     "build:host": "tsc -p tsconfig.host.json && tsdown && tsx scripts/generate-remote.ts",
     "build:client": "tsc -p tsconfig.client.json && tsdown --config tsdown.client.config.ts --env.DSH_BUILD_FACE=client"
   },
