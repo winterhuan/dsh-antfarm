@@ -1,149 +1,127 @@
-import type { ResolvedWorkflow, Story } from '../workflow/types.ts'
-import type { JournalEvent } from './types.ts'
+/** One reducer for running, inspected, and recovered Antfarm state. */
+import type { FileArtifact, CheckEvidence, Attempt, Checkpoint, JournalEvent, RunStartData } from './types.ts'
+export type { FoldedStory } from './types.ts'
 
-export interface FoldedStory extends Story {
-  readonly status: 'pending' | 'done' | 'retry' | 'failed'
-  readonly retryCount: number
-  readonly feedback?: string
-}
-
+/** Run state obtained exclusively from committed journal records. */
 export interface FoldedRun {
-  readonly runId: string
-  readonly workflowId: string
-  readonly workflow: ResolvedWorkflow
-  readonly ownerSessionId: string
-  readonly status: 'active' | 'interrupted' | 'blocked' | 'completed' | 'failed' | 'cancelled'
-  readonly task: string
-  readonly baseCwd: string
-  readonly baseRevision: string
-  readonly baseStatus: string
-  readonly provider: string
-  readonly model?: string
-  readonly isolation: 'worktree' | 'shared'
-  readonly context: Readonly<Record<string, string>>
-  readonly attempts: Readonly<Record<string, number>>
-  readonly completedSteps: readonly string[]
-  readonly currentStep?: string
-  readonly openStep?: { readonly stepId: string; readonly attempt: number; readonly storyId?: string; readonly execution: 'normal' | 'story' | 'verify' | 'repair'; readonly sourceStepId?: string }
-  readonly stories: readonly FoldedStory[]
-  readonly blockedReason?: string
-  readonly resumeGuidance?: string
-  readonly resumeCount: number
-  readonly workspace: string
-  readonly branch: string
-  readonly workspaceDisposition: 'present' | 'cleaned' | 'retained'
-  readonly workspaceReason?: string
+  readonly start: RunStartData
+  readonly checkpoint: Checkpoint
+  readonly status: 'queued' | 'starting' | 'interrupted' | 'running' | 'blocked' | 'completed' | 'failed' | 'cancelled'
+  readonly prepared: boolean
+  readonly openAttempt: Attempt | null
+  readonly childSessionIds: readonly string[]
+  readonly updatedAt: number
+  readonly revision: number
+  readonly workspaceDisposition: 'present' | 'retained' | 'cleaned'
+  readonly workspaceReason: string
+  readonly resumeGuidance: string
+  readonly retryGrant: number
+  readonly checks: readonly CheckEvidence[]
+  readonly artifacts: readonly FileArtifact[]
 }
 
-/** Fold one validated journal into current run state. */
+/**
+ * Rebuild accepted state without promoting attempt results into checkpoints.
+ * @param events - Validated records in contiguous sequence order.
+ * @returns State at the last durable commit; an open attempt has an uncertain outcome.
+ */
 export function foldJournal(events: readonly JournalEvent[]): FoldedRun {
   const first = events[0]
-  if (first === undefined || first.type !== 'run-start') throw new Error('journal must begin with run-start')
+  if (first?.type !== 'run-start') throw new Error('journal must begin with run-start')
   const start = first.data
-  const context: Record<string, string> = { task: start.task, branch: start.branch, workspace: start.workspace }
-  const attempts: Record<string, number> = {}
-  const completedSteps = new Set<string>()
-  const stories = new Map<string, FoldedStory>()
-  let currentStep: string | undefined
-  let openStep: FoldedRun['openStep']
-  let status: FoldedRun['status'] = 'active'
-  let blockedReason: string | undefined
-  let resumeGuidance: string | undefined
-  let resumeCount = 0
+  if (start.workflowId !== start.resolvedWorkflowSnapshot.id) throw new Error('workflow snapshot identity differs')
+  const stepIds = new Set(start.resolvedWorkflowSnapshot.steps.map(step => step.id))
+  let checkpoint: Checkpoint = { cursor: 0, context: {}, stories: null, retries: {}, feedback: {}, repair: null, blocked: null }
+  let status: FoldedRun['status'] = 'queued'
+  let prepared = false
+  let openAttempt: Attempt | null = null
+  const childSessionIds: string[] = []
   let workspaceDisposition: FoldedRun['workspaceDisposition'] = 'present'
-  let workspaceReason: string | undefined
+  let workspaceReason = ''
+  let resumeGuidance = ''
+  let retryGrant = 0
+  const checks: CheckEvidence[] = []
+  let artifacts: readonly FileArtifact[] = []
+  let terminal = false
+  let attemptEnded = false
+  let resumed = false
   for (const event of events.slice(1)) {
+    if (terminal && !['workspace-disposition', 'tail-recovered', 'file-artifacts', 'notification', 'health'].includes(event.type) && !(status === 'failed' && event.type === 'run-resume')) throw new Error('journal contains execution after run settlement')
     switch (event.type) {
-      case 'step-start':
-        currentStep = event.data.stepId
-        attempts[event.data.stepId] = event.data.attempt
-        if (openStep !== undefined) throw new Error(`journal contains overlapping steps at "${event.data.stepId}"`)
-        openStep = {
-          stepId: event.data.stepId,
-          attempt: event.data.attempt,
-          ...(event.data.storyId === undefined ? {} : { storyId: event.data.storyId }),
-          execution: event.data.execution ?? (event.data.storyId === undefined ? 'normal' : 'story'),
-          ...(event.data.sourceStepId === undefined ? {} : { sourceStepId: event.data.sourceStepId }),
+      case 'run-start': throw new Error('journal has more than one run-start')
+      case 'run-dispatch': status = prepared ? 'running' : 'starting'; break
+      case 'run-queue': status = 'queued'; break
+      case 'run-interrupt': status = 'interrupted'; workspaceReason = event.data.reason; break
+      case 'tail-recovered': break
+      case 'notification': break
+      case 'health': break
+      case 'workspace-ready':
+        if (prepared) throw new Error('workspace was prepared more than once')
+        prepared = true
+        status = 'running'
+        break
+      case 'attempt-start':
+        if (!prepared) throw new Error('child started before workspace readiness')
+        if (openAttempt !== null && !attemptEnded && !resumed) throw new Error('child attempt overlaps an unsettled child')
+        if (!stepIds.has(event.data.stepId)) throw new Error('child references an unknown step')
+        if (childSessionIds.includes(event.data.childSessionId)) throw new Error('child identity reused')
+        attemptEnded = false
+        resumed = false
+        openAttempt = event.data
+        childSessionIds.push(event.data.childSessionId)
+        status = 'running'
+        break
+      case 'attempt-end':
+        if (openAttempt?.childSessionId !== event.data.childSessionId) throw new Error('child result has no matching attempt')
+        if (attemptEnded) throw new Error('child result recorded twice')
+        attemptEnded = true
+        // Only a checkpoint clears uncertainty and accepts business output.
+        break
+      case 'check-evidence':
+        if (openAttempt?.childSessionId !== event.data.childSessionId || openAttempt.stepId !== event.data.stepId) throw new Error('check evidence has no matching attempt')
+        if (checks.some(check => check.callId === event.data.callId)) throw new Error('check evidence identity reused')
+        checks.push(event.data)
+        break
+      case 'checkpoint':
+        if (event.data.cursor > start.resolvedWorkflowSnapshot.steps.length) throw new Error('checkpoint position exceeds workflow')
+        if (!prepared) throw new Error('checkpoint precedes workspace readiness')
+        const stories = event.data.stories
+        if (stories !== null && new Set(stories.map(story => story.id)).size !== stories.length) throw new Error('checkpoint contains duplicate stories')
+        if (event.data.repair !== null && (!stepIds.has(event.data.repair.targetId) || !stepIds.has(event.data.repair.sourceStepId))) throw new Error('checkpoint repair references an unknown step')
+        for (const proof of Object.values(event.data.acceptedChecks ?? {})) {
+          if (proof.callIds.length === 0 || proof.callIds.some(id => !checks.some(check => check.callId === id && check.passed && check.candidate === proof.candidate && check.afterCandidate === proof.candidate))) throw new Error('accepted check has no committed matching execution')
         }
-        break
-      case 'step-end':
-        if (openStep === undefined) throw new Error(`step-end for "${event.data.stepId}" has no matching step-start`)
-        if (openStep.stepId !== event.data.stepId || openStep.attempt !== event.data.attempt || openStep.storyId !== event.data.storyId) {
-          throw new Error(`step-end for "${event.data.stepId}" does not match its open step`)
-        }
-        for (const [key, value] of Object.entries(event.data.contextDelta)) context[key] = value
-        if (event.data.outcome === 'done' && event.data.storyId === undefined && (event.data.execution ?? 'normal') === 'normal') completedSteps.add(event.data.stepId)
-        openStep = undefined
-        break
-      case 'stories-registered':
-        if (stories.size > 0) throw new Error('journal contains more than one stories-registered event')
-        for (const item of event.data.stories) stories.set(item.id, { ...item, status: 'pending', retryCount: 0 })
-        break
-      case 'story-end': {
-        const prior = stories.get(event.data.storyId)
-        if (prior === undefined) throw new Error(`story-end references unknown story "${event.data.storyId}"`)
-        stories.set(prior.id, {
-          ...prior,
-          status: event.data.outcome,
-          retryCount: event.data.retryCount,
-          ...(event.data.feedback === undefined ? {} : { feedback: event.data.feedback }),
-        })
-        break
-      }
-      case 'run-blocked':
-        status = 'blocked'
-        blockedReason = event.data.reason
-        if (openStep !== undefined) throw new Error('run-blocked cannot be appended while a step is open')
+        checkpoint = event.data
+        openAttempt = null
+        status = checkpoint.blocked === null ? 'running' : 'blocked'
         break
       case 'run-resume':
-        if (status !== 'blocked' && status !== 'active') throw new Error('run-resume requires a blocked or interrupted run')
-        openStep = undefined
-        status = 'active'
-        blockedReason = undefined
+        if (status === 'completed' || status === 'cancelled' || workspaceDisposition === 'cleaned') throw new Error('settled output cannot be resumed')
+        if (status === 'failed' && (event.data.retryGrant ?? 0) < 1) throw new Error('failed resume requires a retry budget grant')
+        if (openAttempt !== null && event.data.guidance.trim() === '') throw new Error('uncertain attempt requires reconciliation guidance')
+        terminal = false
+        retryGrant += event.data.retryGrant ?? 0
+        resumed = true
         resumeGuidance = event.data.guidance
-        resumeCount += 1
+        status = 'queued'
         break
       case 'run-end':
-        openStep = undefined
-        status = event.data.stopReason
+        if (event.data.status === 'completed' && (openAttempt !== null || checkpoint.cursor !== start.resolvedWorkflowSnapshot.steps.length)) throw new Error('completion precedes accepted workflow checkpoints')
+        if (event.data.status === 'completed') {
+          const perStory = new Set(start.resolvedWorkflowSnapshot.steps.flatMap(step => step.type === 'loop' && step.verifyStep !== undefined ? [step.verifyStep] : []))
+          const proofs = start.resolvedWorkflowSnapshot.steps.filter(step => step.requireChecks && !perStory.has(step.id) && step.type === 'single').map(step => checkpoint.acceptedChecks?.[step.id])
+          if (proofs.some(proof => proof === undefined) || new Set(proofs.map(proof => proof?.candidate)).size > 1) throw new Error('completion requires all final checks on the same candidate')
+        }
+        status = event.data.status
+        workspaceReason = event.data.reason
+        terminal = true
         break
-      case 'workspace-cleaned':
-        workspaceDisposition = 'cleaned'
-        break
-      case 'workspace-retained':
-        workspaceDisposition = 'retained'
+      case 'file-artifacts': artifacts = event.data.artifacts; break
+      case 'workspace-disposition':
+        workspaceDisposition = event.data.disposition
         workspaceReason = event.data.reason
         break
-      case 'run-start':
-        throw new Error('journal contains more than one run-start')
     }
   }
-  if (status === 'active') status = 'interrupted'
-  return {
-    runId: start.runId,
-    workflowId: start.workflowId,
-    workflow: start.resolvedWorkflowSnapshot,
-    ownerSessionId: start.ownerSessionId,
-    status,
-    task: start.task,
-    baseCwd: start.baseCwd,
-    baseRevision: start.baseRevision,
-    baseStatus: start.baseStatus,
-    provider: start.provider,
-    ...(start.model === undefined ? {} : { model: start.model }),
-    isolation: start.isolation,
-    context,
-    attempts,
-    completedSteps: [...completedSteps],
-    ...(currentStep === undefined ? {} : { currentStep }),
-    ...(openStep === undefined ? {} : { openStep }),
-    stories: [...stories.values()],
-    ...(blockedReason === undefined ? {} : { blockedReason }),
-    ...(resumeGuidance === undefined ? {} : { resumeGuidance }),
-    resumeCount,
-    workspace: start.workspace,
-    branch: start.branch,
-    workspaceDisposition,
-    ...(workspaceReason === undefined ? {} : { workspaceReason }),
-  }
+  return { revision: events.length - 1, start, checkpoint, status, prepared, openAttempt, childSessionIds, updatedAt: events.findLast(event => event.type !== 'notification' && event.type !== 'health')?.time ?? first.time, workspaceDisposition, workspaceReason, resumeGuidance, retryGrant, checks, artifacts }
 }

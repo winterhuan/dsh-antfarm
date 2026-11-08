@@ -1,0 +1,1 @@
+Inspect the repository before planning. Do not edit files. Derive a small ordered story set from evidence, with concrete acceptance criteria and explicit retry budgets. Each story must contribute to completing the requested task.

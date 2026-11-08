@@ -1,0 +1,1 @@
+Check the report independently against the task and source files. Execute concrete file and content checks. Reject unsupported claims or unmet constraints with actionable feedback. Do not edit the report or input snapshots.

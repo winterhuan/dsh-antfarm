@@ -1,6 +1,6 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type {} from '../runtime/index.ts'
 
 export const name = 'antfarm-tools'
@@ -22,7 +22,7 @@ const runOutput = {
   additionalProperties: false,
   properties: {
     run_id: { type: 'string' as const, required: true },
-    job_id: { type: 'string' as const, required: true },
+    job_id: { type: 'string' as const },
     workflow_id: { type: 'string' as const, required: true },
     status: { type: 'string' as const, required: true },
     workspace: { type: 'string' as const, required: true },
@@ -32,21 +32,22 @@ const runOutput = {
 
 /** Register model-facing antfarm run and list tools. */
 export function apply(ctx: Context): void {
-  ctx.tools.register(defineTool({
+  const register = (definition: ToolDefinition) => ctx.effect(() => ctx.tools.register(definition, {
+    when: ({ agent }) => agent.session.header.origin !== 'subagent',
+  }))
+  register(defineTool({
     name: 'antfarm_run',
-    description: 'Start a declared antfarm team workflow in the background. Use this only when the user explicitly requests an antfarm or multi-agent team workflow; use ordinary subagent delegation for a single focused task.',
+    description: 'Run a declared antfarm team workflow and wait for its outcome, or admit it in the background. Use this when the user explicitly requests an antfarm or multi-agent team workflow.',
     parameters: {
       task: { type: 'string', required: true, description: 'Complete task for the workflow team.' },
+      background: { type: 'boolean', description: 'Return after durable admission when true. Omit or set false to wait for final acceptance, blocking or failure; use this for one-shot headless execution.' },
       workflow_id: { type: 'string', description: 'Optional workflow id. Omit it to use the configured default, normally feature-dev.' },
-      cwd: { type: 'string', description: 'Git working directory. Defaults to the caller session workspace.' },
-      provider: { type: 'string', description: 'Registered subagent provider. Defaults to the plugin configuration.' },
-      model: { type: 'string', description: 'Optional model override for workflow agents.' },
-      isolation: { type: 'string', enum: ['worktree', 'shared'], description: 'Workspace isolation. Defaults to worktree.' },
+
     },
     output: {
       schema: runOutput,
       render(_args, value): ContentBlock[] {
-        return [{ type: 'text', text: `Antfarm run ${value.run_id} started as job ${value.job_id}.\nWorkflow: ${value.workflow_id}\nWorkspace: ${value.workspace}\nBranch: ${value.branch}\nUse antfarm_list or the jobs tools to inspect progress.` }]
+        return [{ type: 'text', text: `Antfarm run ${value.run_id} [${value.status}]${value.job_id === undefined ? '' : `; job ${value.job_id}`}.\nWorkflow: ${value.workflow_id}\nWorkspace: ${value.workspace}${value.branch === '' ? '' : `\nBranch: ${value.branch}`}\nUse antfarm_status to inspect results and next actions.` }]
       },
     },
     async execute(args, exec) {
@@ -56,17 +57,14 @@ export function apply(ctx: Context): void {
         task: args.task,
         ...(args.workflow_id === undefined ? {} : { workflowId: args.workflow_id }),
         parent,
-        ...(args.cwd === undefined ? {} : { cwd: args.cwd }),
-        ...(args.provider === undefined ? {} : { provider: args.provider }),
-        ...(args.model === undefined ? {} : { model: args.model }),
-        ...(args.isolation === undefined ? {} : { isolation: args.isolation }),
         signal: exec.signal,
       })
-      return { run_id: receipt.runId, job_id: String(receipt.jobId), workflow_id: receipt.workflowId, status: receipt.status, workspace: receipt.workspace, branch: receipt.branch }
+      const status = args.background === true ? receipt.status : (await ctx.antfarm.wait(receipt.runId, parent.id, exec.signal)).summary.status
+      return { run_id: receipt.runId, ...(receipt.jobId === undefined ? {} : { job_id: String(receipt.jobId) }), workflow_id: receipt.workflowId, status, workspace: receipt.workspace, branch: receipt.branch }
     },
   }))
 
-  ctx.tools.register(defineTool({
+  register(defineTool({
     name: 'antfarm_list',
     description: 'List this session\'s antfarm runs with bounded status summaries.',
     parameters: {},
@@ -77,7 +75,7 @@ export function apply(ctx: Context): void {
           type: 'object',
           additionalProperties: false,
           properties: {
-            run_id: { type: 'string', required: true },
+            run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' },
             job_id: { type: 'string' },
             workflow_id: { type: 'string', required: true },
             status: { type: 'string', required: true },
@@ -95,7 +93,7 @@ export function apply(ctx: Context): void {
     async execute(_args, exec) {
       const caller = exec.agent
       if (caller === undefined) throw new Error('antfarm_list requires an initiating agent')
-      return (await ctx.antfarm.list(caller)).map(run => ({
+      return (await ctx.antfarm.list(caller.id)).map(run => ({
         run_id: run.runId,
         ...(run.jobId === undefined ? {} : { job_id: String(run.jobId) }),
         workflow_id: run.workflowId,
@@ -107,34 +105,36 @@ export function apply(ctx: Context): void {
     },
   }))
 
-  ctx.tools.register(defineTool({
+  register(defineTool({
     name: 'antfarm_status',
     description: 'Inspect durable status, context, and story progress for one antfarm run owned by this session.',
-    parameters: { run_id: { type: 'string', required: true } },
+    parameters: { run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' } },
     output: {
       schema: {
         type: 'object',
         additionalProperties: false,
         properties: {
-          run_id: { type: 'string', required: true },
+          run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' },
           workflow_id: { type: 'string', required: true },
           status: { type: 'string', required: true },
           workspace: { type: 'string', required: true },
           branch: { type: 'string', required: true },
           current_step: { type: 'string' },
+          reason: { type: 'string' },
           context: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: { key: { type: 'string', required: true }, value: { type: 'string', required: true } } } },
           stories: { type: 'array', required: true, items: { type: 'object', additionalProperties: false, properties: { id: { type: 'string', required: true }, title: { type: 'string', required: true }, status: { type: 'string', required: true }, retry_count: { type: 'number', required: true }, feedback: { type: 'string' } } } },
         },
       },
       render(_args, value): ContentBlock[] {
         const storyLines = value.stories.map(story => `- ${story.id} [${story.status}] retries=${story.retry_count}${story.feedback === undefined ? '' : `: ${story.feedback}`}`)
-        return [{ type: 'text', text: `Antfarm run ${value.run_id} is ${value.status}.\nWorkflow: ${value.workflow_id}\nWorkspace: ${value.workspace}\nBranch: ${value.branch}${value.current_step === undefined ? '' : `\nCurrent step: ${value.current_step}`}${storyLines.length === 0 ? '' : `\nStories:\n${storyLines.join('\n')}`}` }]
+        const results = value.context.slice(-3).map(row => `${row.key}: ${row.value.slice(0, 2000)}`).join('\n')
+        return [{ type: 'text', text: `Antfarm run ${value.run_id} is ${value.status}.\nWorkflow: ${value.workflow_id}\nWorkspace: ${value.workspace}${value.branch === '' ? '' : `\nBranch: ${value.branch}`}${value.current_step === undefined ? '' : `\nCurrent step: ${value.current_step}`}${value.reason === undefined ? '' : `\nReason: ${value.reason}`}${storyLines.length === 0 ? '' : `\nStories:\n${storyLines.join('\n')}`}${results === '' ? '' : `\nRecent accepted results:\n${results}`}` }]
       },
     },
     async execute(args, exec) {
       const caller = exec.agent
       if (caller === undefined) throw new Error('antfarm_status requires an initiating agent')
-      const status = await ctx.antfarm.status(args.run_id, caller)
+      const status = await ctx.antfarm.status(await ctx.antfarm.find(args.run_id, caller.id), caller.id)
       return {
         run_id: status.summary.runId,
         workflow_id: status.summary.workflowId,
@@ -142,38 +142,42 @@ export function apply(ctx: Context): void {
         workspace: status.summary.workspace,
         branch: status.summary.branch,
         ...(status.summary.currentStep === undefined ? {} : { current_step: status.summary.currentStep }),
+        ...(status.summary.reason === undefined ? {} : { reason: status.summary.reason }),
         context: Object.entries(status.context).map(([key, value]) => ({ key, value })),
         stories: status.stories.map(story => ({ id: story.id, title: story.title, status: story.status, retry_count: story.retryCount, ...(story.feedback === undefined ? {} : { feedback: story.feedback }) })),
       }
     },
   }))
 
-  ctx.tools.register(defineTool({
+  register(defineTool({
     name: 'antfarm_resume',
-    description: 'Resume one blocked or interrupted antfarm run owned by this session as a new background job.',
+    description: 'Resume one failed, blocked or interrupted antfarm run owned by this session and wait for its outcome, or continue it in the background.',
     parameters: {
-      run_id: { type: 'string', required: true },
-      guidance: { type: 'string', description: 'Optional human guidance supplied to the resumed step.' },
+      run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' },
+      guidance: { type: 'string', description: 'Required reconciliation for an uncertain attempt; otherwise optional guidance.' },
+      retry_grant: { type: 'number', description: 'Additional retries, 1 to 20; required for failed Runs. Omission preserves the saved budget.' },
+      background: { type: 'boolean', description: 'Return after admission when true. Omit or set false to wait for final acceptance, blocking or failure; use this for one-shot headless recovery.' },
     },
     output: {
       schema: runOutput,
       render(_args, value): ContentBlock[] {
-        return [{ type: 'text', text: `Antfarm run ${value.run_id} resumed as job ${value.job_id}.\nWorkspace: ${value.workspace}\nBranch: ${value.branch}` }]
+        return [{ type: 'text', text: `Antfarm run ${value.run_id} [${value.status}]${value.job_id === undefined ? '' : `; job ${value.job_id}`}.\nWorkspace: ${value.workspace}${value.branch === '' ? '' : `\nBranch: ${value.branch}`}` }]
       },
     },
     async execute(args, exec) {
       const parent = exec.agent
       if (parent === undefined) throw new Error('antfarm_resume requires an initiating agent')
-      const receipt = await ctx.antfarm.resume({ runId: args.run_id, parent, ...(args.guidance === undefined ? {} : { guidance: args.guidance }), signal: exec.signal })
-      return { run_id: receipt.runId, job_id: String(receipt.jobId), workflow_id: receipt.workflowId, status: receipt.status, workspace: receipt.workspace, branch: receipt.branch }
+      const receipt = await ctx.antfarm.resume({ runId: await ctx.antfarm.find(args.run_id, parent.id), parent, ...(args.guidance === undefined ? {} : { guidance: args.guidance }), ...(args.retry_grant === undefined ? {} : { retryGrant: args.retry_grant }), signal: exec.signal })
+      const status = args.background === true ? receipt.status : (await ctx.antfarm.wait(receipt.runId, parent.id, exec.signal)).summary.status
+      return { run_id: receipt.runId, ...(receipt.jobId === undefined ? {} : { job_id: String(receipt.jobId) }), workflow_id: receipt.workflowId, status, workspace: receipt.workspace, branch: receipt.branch }
     },
   }))
 
-  ctx.tools.register(defineTool({
+  register(defineTool({
     name: 'antfarm_cancel',
     description: 'Cancel one active, blocked, or interrupted antfarm run owned by this session.',
     parameters: {
-      run_id: { type: 'string', required: true },
+      run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' },
       reason: { type: 'string', description: 'Cancellation reason recorded in the run journal.' },
     },
     output: {
@@ -185,15 +189,15 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       const caller = exec.agent
       if (caller === undefined) throw new Error('antfarm_cancel requires an initiating agent')
-      const summary = await ctx.antfarm.cancel(args.run_id, caller, args.reason)
+      const summary = await ctx.antfarm.cancel(await ctx.antfarm.find(args.run_id, caller.id), caller.id, args.reason)
       return { run_id: summary.runId, status: summary.status, workspace: summary.workspace, branch: summary.branch }
     },
   }))
 
-  ctx.tools.register(defineTool({
+  register(defineTool({
     name: 'antfarm_cleanup',
     description: 'Attempt clean-only removal of a retained antfarm worktree owned by this session.',
-    parameters: { run_id: { type: 'string', required: true } },
+    parameters: { run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' } },
     output: {
       schema: summaryOutput,
       render(_args, value): ContentBlock[] {
@@ -203,7 +207,7 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       const caller = exec.agent
       if (caller === undefined) throw new Error('antfarm_cleanup requires an initiating agent')
-      const summary = await ctx.antfarm.cleanup(args.run_id, caller)
+      const summary = await ctx.antfarm.cleanup(await ctx.antfarm.find(args.run_id, caller.id), caller.id)
       return { run_id: summary.runId, status: summary.status, workspace: summary.workspace, branch: summary.branch }
     },
   }))

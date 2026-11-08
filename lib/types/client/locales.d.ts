@@ -1,0 +1,115 @@
+/** Locale namespace shared by the guide and the run panel. */
+export declare const NS = "antfarmRuns";
+/** English run inspection labels. */
+export declare const en: {
+    workflow: string;
+    chooseWorkflow: string;
+    task: string;
+    startRun: string;
+    launchHelp: string;
+    editWorkflow: string;
+    source: string;
+    editHelp: string;
+    saveScope: string;
+    projectScope: string;
+    profileScope: string;
+    resource: string;
+    workflowSource: string;
+    save: string;
+    reload: string;
+    restoreInherited: string;
+    unsavedDraft: string;
+    discardHelp: string;
+    removeHelp: string;
+    keepEditing: string;
+    discard: string;
+    removeOverride: string;
+    catalogError: string;
+    workflowError: string;
+    operationSuccess: string;
+    operationError: string;
+    guidance: string;
+    retryGrant: string;
+    resumeHelp: string;
+    resumeRun: string;
+    cancelRun: string;
+    cleanupRun: string;
+    cleanupHelp: string;
+    confirmCleanup: string;
+    acceptedProgress: string;
+    output: string;
+    acceptedChecks: string;
+    executionEvidence: string;
+    checkEligible: string;
+    checkNotEligible: string;
+    executionExit: string;
+    artifacts: string;
+    events: string;
+    loadEvents: string;
+    moreEvents: string;
+    steps: string;
+    preview: string;
+    download: string;
+    moreRuns: string;
+    search: string;
+    allStates: string;
+    policy: string;
+    board: string;
+    allWorkflows: string;
+    emptyBoard: string;
+    health: string;
+    healthHistory: string;
+    checkHealth: string;
+    ensureExecution: string;
+    healthHelp: string;
+    staleDraft: string;
+    compareSource: string;
+    installWorkflow: string;
+    uninstallWorkflow: string;
+    newWorkflowId: string;
+    copyWorkflow: string;
+    title: string;
+    description: string;
+    refresh: string;
+    retry: string;
+    empty: string;
+    emptyHelp: string;
+    loadError: string;
+    detailError: string;
+    noWorkspace: string;
+    branch: string;
+    workspace: string;
+    step: string;
+    stories: string;
+    retries: string;
+    children: string;
+    openChild: string;
+    unavailableChild: string;
+    uncertain: string;
+    retained: string;
+    cleaned: string;
+    queued: string;
+    starting: string;
+    running: string;
+    interrupted: string;
+    blocked: string;
+    completed: string;
+    failed: string;
+    cancelled: string;
+    legacy: string;
+    corrupt: string;
+    pending: string;
+    done: string;
+    retrying: string;
+};
+/** Closed set of localized run labels. */
+export type AntfarmKey = keyof typeof en;
+/** Chinese run inspection labels. */
+export declare const zh: Record<AntfarmKey, string>;
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+    interface LocaleNamespaceMap {
+        /** Antfarm run inspection copy. */
+        antfarmRuns: AntfarmKey;
+    }
+}
+//# sourceMappingURL=locales.d.ts.map

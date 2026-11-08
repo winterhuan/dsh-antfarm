@@ -1,0 +1,33 @@
+id: research
+name: Research report
+version: 2
+workspace: files
+description: Research supplied source files, write a report, and independently check its sources.
+inputs: []
+agents:
+  - id: researcher
+    preset: antfarm-scanning
+    instructions: agents/researcher.md
+  - id: writer
+    preset: antfarm-coding
+    instructions: agents/writer.md
+  - id: checker
+    preset: antfarm-verification
+    instructions: agents/checker.md
+steps:
+  - id: research
+    agent: researcher
+    input: Research {{task}} using the immutable inputs under {{workspace}}/inputs. Return findings, sources and limitations as named values.
+  - id: write
+    agent: writer
+    input: Write report.md for {{task}} in {{workspace}} using these checked research handoffs. {{results}}
+  - id: check
+    agent: checker
+    requireChecks: true
+    input: Independently check report.md for {{task}} against the supplied sources. Run shell checks for file existence, citations and the requested constraints, and cite those commands in checks. {{results}}
+    maxRetries: 1
+    onFail:
+      retryStep: write
+      maxRetries: 2
+      onExhausted:
+        escalateTo: human

@@ -1,171 +1,281 @@
+/** Resource-authorized inspection and revision-bound Antfarm operations. */
 import type { Context } from '@deepseek-ai/cordis'
-import { TypertRemoteService, Remote } from '@deepseek-ai/dsh-typert-protocol'
-import { readFile, readdir, rename, writeFile } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { createHash } from 'node:crypto'
-import { parse } from 'yaml'
-import { RunJournal } from '../persistence/journal.ts'
-import { foldJournal } from '../persistence/fold.ts'
-import { validateWorkflowSchema } from '../workflow/loader.ts'
+import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import type {} from '../runtime/index.ts'
+import type { AntfarmArtifactContent, AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from '../types.ts'
+import type { WorkflowDraft } from '../workflow/types.ts'
 
-const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
-const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const remoteInitializers: Array<(this: object) => void> = []
-
-export interface Config {
-  readonly journalRoot: string
-  readonly workflowDirs?: string[]
-  readonly editable?: boolean
-}
-
-async function workflowDirectory(id: string, roots: readonly string[]): Promise<string> {
-  if (!ID.test(id)) throw new Error('workflow id must be kebab-case')
-  for (const root of roots) {
-    const directory = join(resolve(root), id)
-    try {
-      await readFile(join(directory, 'workflow.yml'), 'utf8')
-      return directory
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Authorized Antfarm inspection and operations. */
+    antfarmStudio: AntfarmStudioGateway
   }
-  throw new Error(`workflow "${id}" was not found`)
 }
 
-async function workflowIds(roots: readonly string[]): Promise<string[]> {
-  const ids = new Set<string>()
-  for (const root of roots) {
-    try {
-      for (const entry of await readdir(resolve(root), { withFileTypes: true })) {
-        if (entry.isDirectory() && ID.test(entry.name) && entry.name !== 'shared') ids.add(entry.name)
-      }
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-  return [...ids].sort()
-}
-
-async function runRows(root: string): Promise<object[]> {
-  const rows: object[] = []
-  let entries
-  try { entries = await readdir(resolve(root), { withFileTypes: true }) } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return rows
-    throw error
-  }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    try {
-      const events = await (await RunJournal.open(root, entry.name)).load()
-      const folded = foldJournal(events)
-      const childSessionIds = events.flatMap(event => event.type === 'step-end' && event.data.childSessionId !== undefined ? [event.data.childSessionId] : [])
-      rows.push({
-        runId: folded.runId,
-        workflowId: folded.workflowId,
-        status: folded.status,
-        updatedAt: events.at(-1)?.time ?? 0,
-        baseCwd: folded.baseCwd,
-        workspace: folded.workspace,
-        branch: folded.branch,
-        ...(folded.currentStep === undefined ? {} : { currentStep: folded.currentStep }),
-        ...(folded.blockedReason === undefined ? {} : { blockedReason: folded.blockedReason }),
-        attempts: folded.attempts,
-        stories: folded.stories.map(story => ({ id: story.id, title: story.title, status: story.status, retryCount: story.retryCount, ...(story.feedback === undefined ? {} : { feedback: story.feedback }) })),
-        childSessionIds: childSessionIds.slice(-50),
-      })
-    } catch {
-      rows.push({ runId: entry.name, workflowId: '', status: 'corrupt', updatedAt: 0 })
-    }
-  }
-  return rows.sort((a, b) => Number((b as { updatedAt: number }).updatedAt) - Number((a as { updatedAt: number }).updatedAt)).slice(0, 100)
-}
-
-async function agentFiles(directory: string, yaml: string): Promise<object[]> {
-  const parsed = parse(yaml) as { agents?: Array<{ id?: unknown; extends?: unknown }> }
-  if (!Array.isArray(parsed.agents)) return []
-  const rows: object[] = []
-  for (const agent of parsed.agents) {
-    if (typeof agent.id !== 'string' || !ID.test(agent.id)) continue
-    const inherited = typeof agent.extends === 'string' && /^shared\/[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agent.extends) ? agent.extends : undefined
-    const files: Record<string, string> = {}
-    const paths: Record<string, string> = {}
-    for (const name of ['IDENTITY.md', 'SOUL.md', 'AGENTS.md']) {
-      const localPath = `agents/${agent.id}/${name}`
-      const inheritedPath = inherited === undefined ? undefined : `${inherited}/${name}`
-      try {
-        files[name] = await readFile(join(directory, localPath), 'utf8')
-        paths[name] = localPath
-      } catch (error: unknown) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-        if (inheritedPath !== undefined) {
-          files[name] = await readFile(join(dirname(directory), inheritedPath), 'utf8')
-          paths[name] = inheritedPath
-        }
-      }
-    }
-    rows.push({ id: agent.id, files, paths })
-  }
-  return rows
-}
-
-async function atomicWrite(path: string, content: string): Promise<void> {
-  const temporary = join(dirname(path), `.${basename(path)}.antfarm.tmp`)
-  await writeFile(temporary, content, 'utf8')
-  await rename(temporary, path)
-}
-
-/** Trusted-host Remote projection and canonical workflow editor for Antfarm Studio. */
+/** Read the runtime's authoritative run state without activating an Agent. */
 export class AntfarmStudioGateway extends TypertRemoteService {
-  private readonly roots: readonly string[]
+  static inject = ['antfarm']
 
-  constructor(ctx: Context, private readonly config: Config) {
+  /** @param ctx - Host context carrying the Antfarm runtime. */
+  constructor(ctx: Context) {
     super(ctx, 'antfarmStudio')
-    for (const initialize of remoteInitializers) initialize.call(this)
-    this.roots = [...(config.workflowDirs ?? []), resolve(PACKAGE_ROOT, 'workflows')]
   }
 
-  async index(): Promise<object> {
-    return { runs: await runRows(this.config.journalRoot), workflows: await workflowIds(this.roots), editable: this.config.editable === true }
+  /**
+   * List runs owned by the selected Session.
+   * @param sessionId - Session whose owned runs are visible.
+   * @param signal - caller lifetime; runtime reads finish independently of transport cancellation.
+   * @returns the owner's runs in runtime order.
+   */
+  @Remote({ resources: { session: (sessionId: AntfarmSessionId) => sessionId } })
+  async list(sessionId: AntfarmSessionId, signal: AbortSignal): Promise<AntfarmRunSummary[]> {
+    void signal
+    return await this.ctx.antfarm.list(sessionId)
   }
 
-  async workflow(workflowId: string): Promise<object> {
-    const directory = await workflowDirectory(workflowId, this.roots)
-    const yaml = await readFile(join(directory, 'workflow.yml'), 'utf8')
-    const agents = await agentFiles(directory, yaml)
-    const revision = createHash('sha256').update(yaml).update(JSON.stringify(agents)).digest('hex').slice(0, 16)
-    return { id: workflowId, directory, yaml, agents, revision }
+  /**
+   * Inspect a run through its original owner's authority.
+   * @param runId - run selected from the owner's listing.
+   * @param sessionId - Session authorizing the read.
+   * @param signal - caller lifetime; runtime reads finish independently of transport cancellation.
+   * @returns durable run details; another owner's run is refused by the runtime.
+   */
+  @Remote({ resources: { session: (_runId: string, sessionId: AntfarmSessionId) => sessionId } })
+  async status(runId: string, sessionId: AntfarmSessionId, signal: AbortSignal): Promise<AntfarmStatus> {
+    void signal
+    return await this.ctx.antfarm.status(runId, sessionId)
   }
 
-  async save(workflowId: string, path: string, content: string): Promise<object> {
-    if (this.config.editable !== true) throw new Error('Antfarm Studio editing is disabled')
-    const directory = await workflowDirectory(workflowId, this.roots)
-    if (Buffer.byteLength(content, 'utf8') > 1024 * 1024) throw new Error('content exceeds the 1 MiB limit')
-    const local = /^agents\/[a-z0-9]+(?:-[a-z0-9]+)*\/(IDENTITY|SOUL|AGENTS)\.md$/.test(path)
-    const shared = /^shared\/[a-z0-9]+(?:-[a-z0-9]+)*\/(IDENTITY|SOUL|AGENTS)\.md$/.test(path)
-    if (path !== 'workflow.yml' && !local && !shared) throw new Error('path is not an editable workflow file')
-    if (path === 'workflow.yml') validateWorkflowSchema(workflowId, content)
-    const target = shared ? join(dirname(directory), path) : join(directory, path)
-    await atomicWrite(target, content)
-    return { saved: true }
+  /**
+   * Admit a workflow using a stable request identity and root Session authority.
+   * @param request - Stable launch identity and selected owner.
+   * @param signal - Admission lifetime.
+   * @returns Admitted Run projection.
+   */
+  @Remote({ resources: { session: (request: AntfarmLaunchRequest) => request.sessionId } })
+  async start(request: AntfarmLaunchRequest, signal: AbortSignal): Promise<AntfarmRunSummary> {
+    signal.throwIfAborted()
+    const parent = await this.ctx.antfarm.resolveOwner(request.sessionId)
+    const receipt = await this.ctx.antfarm.start({ parent, task: request.task, workflowId: request.workflowId, requestId: request.requestId, ...(request.notificationUrl === undefined ? {} : { notificationUrl: request.notificationUrl }), signal })
+    return (await this.ctx.antfarm.status(receipt.runId, request.sessionId)).summary
+  }
+
+  /**
+   * Apply an owner-authorized operation against the expected Run revision.
+   * @param request - Original owner and expected Run revision.
+   * @param signal - Operation admission lifetime.
+   * @returns Settled operation projection.
+   */
+  @Remote({ resources: { session: (request: AntfarmControlRequest) => request.sessionId } })
+  async control(request: AntfarmControlRequest, signal: AbortSignal): Promise<AntfarmRunSummary> {
+    signal.throwIfAborted()
+    const current = await this.ctx.antfarm.status(request.runId, request.sessionId)
+    if (current.summary.revision !== request.revision) throw new Error('Run changed; refresh before applying this operation')
+    const parent = await this.ctx.antfarm.resolveOwner(request.sessionId)
+    signal.throwIfAborted()
+    if (request.action === 'resume') {
+      await this.ctx.antfarm.resume({ parent, runId: request.runId, revision: request.revision,
+        ...(request.guidance === undefined ? {} : { guidance: request.guidance }), ...(request.retryGrant === undefined ? {} : { retryGrant: request.retryGrant }), signal })
+      return (await this.ctx.antfarm.status(request.runId, request.sessionId)).summary
+    }
+    if (request.action === 'cancel') return this.ctx.antfarm.cancel(request.runId, parent.id, 'cancelled by user', request.revision)
+    return this.ctx.antfarm.cleanup(request.runId, parent.id, request.revision)
+  }
+
+  /**
+   * List recent Runs across explicitly authorized root Sessions.
+   * @param owners - Explicit authorized Session resources.
+   * @param signal - Query lifetime.
+   * @returns At most two hundred recent Runs.
+   */
+  @Remote({ resources: { session: (owners: readonly AntfarmSessionId[]) => owners } })
+  async board(owners: readonly AntfarmSessionId[], signal: AbortSignal): Promise<AntfarmRunSummary[]> {
+    signal.throwIfAborted()
+    if (owners.length === 0 || owners.length > 100) throw new Error('select one to one hundred Sessions for the board')
+    const rows = await Promise.all([...new Set(owners)].map(owner => this.ctx.antfarm.list(owner)))
+    return rows.flat().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 200)
+  }
+
+  /**
+   * Read a bounded page of Runs authorized by explicit Session resources.
+   * @param owners - Explicit authorized Sessions, at most one hundred per page.
+   * @param offset - Previously loaded row count.
+   * @param signal - Read lifetime.
+   * @returns Fifty indexed Run summaries.
+   */
+  @Remote({ resources: { session: (owners: readonly AntfarmSessionId[]) => owners } })
+  async page(owners: readonly AntfarmSessionId[], offset: number, signal: AbortSignal): Promise<AntfarmRunSummary[]> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.page([...new Set(owners)], offset)
+  }
+
+  /**
+   * Discover workflow choices for the authorized Session.
+   * @param sessionId - Catalog scope.
+   * @param signal - Query lifetime.
+   * @returns Workflow choices.
+   */
+  @Remote({ resources: { session: (sessionId: AntfarmSessionId) => sessionId } })
+  async workflows(sessionId: AntfarmSessionId, signal: AbortSignal): Promise<string[]> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.workflowCatalog(sessionId)
+  }
+
+  /**
+   * Read revision-bound editable resources for the selected workflow.
+   * @param id - Selected workflow.
+   * @param sessionId - Catalog scope.
+   * @param signal - Query lifetime.
+   * @returns Revision-bound editable resources.
+   */
+  @Remote({ resources: { session: (_id: string, sessionId: AntfarmSessionId) => sessionId } })
+  async workflow(id: string, sessionId: AntfarmSessionId, signal: AbortSignal): Promise<WorkflowDraft> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.workflowDraft(sessionId, id)
+  }
+
+  /**
+   * Validate and atomically save a revision-bound workflow copy.
+   * @param draft - Validated-copy input.
+   * @param scope - Save location.
+   * @param sessionId - Owner.
+   * @param signal - Admission lifetime.
+   * @returns Saved revision.
+   */
+  @Remote({ resources: { session: (_draft: WorkflowDraft, _scope: 'project' | 'profile', sessionId: AntfarmSessionId) => sessionId } })
+  async saveWorkflow(draft: WorkflowDraft, scope: 'project' | 'profile', sessionId: AntfarmSessionId, signal: AbortSignal): Promise<WorkflowDraft> {
+    if (scope === 'profile' && this.ctx.invocation !== undefined && this.ctx.invocation.peer.principal.kind !== 'owner') throw new Error('profile workflow edits require the Host owner')
+    signal.throwIfAborted()
+    const parent = await this.ctx.antfarm.resolveOwner(sessionId)
+    signal.throwIfAborted()
+    return this.ctx.antfarm.saveWorkflow(parent, draft, scope)
+  }
+
+  /**
+   * Remove a matching writable override after checking active dependencies.
+   * @param id - Writable override.
+   * @param revision - Saved source.
+   * @param scope - Destination.
+   * @param sessionId - Owner.
+   * @param signal - Admission lifetime.
+   */
+  @Remote({ resources: { session: (_id: string, _revision: string, _scope: 'project' | 'profile', sessionId: AntfarmSessionId) => sessionId } })
+  async removeWorkflow(id: string, revision: string, scope: 'project' | 'profile', sessionId: AntfarmSessionId, signal: AbortSignal): Promise<void> {
+    if (scope === 'profile' && this.ctx.invocation !== undefined && this.ctx.invocation.peer.principal.kind !== 'owner') throw new Error('profile workflow edits require the Host owner')
+    signal.throwIfAborted()
+    const parent = await this.ctx.antfarm.resolveOwner(sessionId)
+    signal.throwIfAborted()
+    await this.ctx.antfarm.removeWorkflow(parent, id, revision, scope)
+  }
+
+  /**
+   * Read bounded committed events after an exclusive sequence cursor.
+   * @param runId - Owned Run.
+   * @param sessionId - Owner.
+   * @param after - Exclusive cursor.
+   * @param signal - Read lifetime.
+   * @returns Committed facts.
+   */
+  @Remote({ resources: { session: (_runId: string, sessionId: AntfarmSessionId) => sessionId } })
+  async events(runId: string, sessionId: AntfarmSessionId, after: number, signal: AbortSignal): Promise<AntfarmEventSummary[]> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.events(runId, sessionId, after)
+  }
+
+  /**
+   * Read a verified UTF-8 preview of a retained artifact.
+   * @param runId - Owned Run.
+   * @param sessionId - Owner.
+   * @param sha256 - Retained digest.
+   * @param signal - Read lifetime.
+   * @returns Text preview.
+   */
+  @Remote({ resources: { session: (_runId: string, sessionId: AntfarmSessionId) => sessionId } })
+  async artifact(runId: string, sessionId: AntfarmSessionId, sha256: string, signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.artifact(runId, sessionId, sha256)
+  }
+
+  /**
+   * Read digest-verified retained bytes for download.
+   * @param runId - Owned Run.
+   * @param sessionId - Owner.
+   * @param sha256 - Retained digest.
+   * @param signal - Read lifetime.
+   * @returns Verified download content.
+   */
+  @Remote({ resources: { session: (_runId: string, sessionId: AntfarmSessionId) => sessionId } })
+  async artifactContent(runId: string, sessionId: AntfarmSessionId, sha256: string, signal: AbortSignal): Promise<AntfarmArtifactContent> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.artifactContent(runId, sessionId, sha256)
+  }
+
+  /**
+   * Inspect Run health under the selected Session’s authority.
+   * @param sessionId - Authorized owner.
+   * @param signal - Admission lifetime.
+   * @returns Diagnosed Run health.
+   */
+  @Remote({ resources: { session: (sessionId: AntfarmSessionId) => sessionId } })
+  async health(sessionId: AntfarmSessionId, signal: AbortSignal): Promise<AntfarmHealthReport> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.checkHealth(sessionId)
+  }
+
+  /**
+   * Read bounded health history and current monitoring settings.
+   * @param sessionId - Authorized owner.
+   * @param signal - Read lifetime.
+   * @returns Health settings and bounded history.
+   */
+  @Remote({ resources: { session: (sessionId: AntfarmSessionId) => sessionId } })
+  async healthHistory(sessionId: AntfarmSessionId, signal: AbortSignal): Promise<AntfarmHealthHistory> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.healthHistory(sessionId)
+  }
+
+  /**
+   * Dispatch safe inactive work through the existing executor.
+   * @param sessionId - Authorized owner.
+   * @param signal - Admission lifetime.
+   * @returns Safely dispatched inactive Run ids.
+   */
+  @Remote({ resources: { session: (sessionId: AntfarmSessionId) => sessionId } })
+  async ensureExecution(sessionId: AntfarmSessionId, signal: AbortSignal): Promise<string[]> {
+    signal.throwIfAborted()
+    return this.ctx.antfarm.ensureExecution(sessionId)
+  }
+
+  /**
+   * Create an independent project workflow from a matching source revision.
+   * @param draft - Source and expected revision.
+   * @param newId - New project workflow identity.
+   * @param sessionId - Owner.
+   * @param signal - Admission lifetime.
+   * @returns Validated independent copy.
+   */
+  @Remote({ resources: { session: (_draft: WorkflowDraft, _newId: string, sessionId: AntfarmSessionId) => sessionId } })
+  async copyWorkflow(draft: WorkflowDraft, newId: string, sessionId: AntfarmSessionId, signal: AbortSignal): Promise<WorkflowDraft> {
+    signal.throwIfAborted()
+    const parent = await this.ctx.antfarm.resolveOwner(sessionId)
+    signal.throwIfAborted()
+    return this.ctx.antfarm.copyWorkflow(parent, draft, newId)
+  }
+
+  /**
+   * Change workflow availability after checking revision and active dependencies.
+   * @param draft - Workflow identity and expected source revision.
+   * @param enabled - Install or uninstall.
+   * @param sessionId - Owner.
+   * @param signal - Admission lifetime.
+   */
+  @Remote({ resources: { session: (_draft: WorkflowDraft, _enabled: boolean, sessionId: AntfarmSessionId) => sessionId } })
+  async setWorkflowEnabled(draft: WorkflowDraft, enabled: boolean, sessionId: AntfarmSessionId, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted()
+    const parent = await this.ctx.antfarm.resolveOwner(sessionId)
+    signal.throwIfAborted()
+    await this.ctx.antfarm.setWorkflowEnabled(parent, draft.id, enabled, false, draft)
   }
 }
-
-function markRemote(name: 'index' | 'workflow' | 'save'): void {
-  const method = AntfarmStudioGateway.prototype[name] as (this: AntfarmStudioGateway, ...args: unknown[]) => unknown
-  Remote(name)(method, {
-    kind: 'method',
-    name,
-    static: false,
-    private: false,
-    access: { has: object => name in object, get: object => (object as AntfarmStudioGateway)[name] as typeof method },
-    addInitializer: initializer => { remoteInitializers.push(initializer as (this: object) => void) },
-    metadata: undefined,
-  })
-}
-
-markRemote('index')
-markRemote('workflow')
-markRemote('save')
 
 export default AntfarmStudioGateway

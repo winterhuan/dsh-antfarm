@@ -1,0 +1,34 @@
+# Bilingual-pair consistency record for DESIGN.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write DESIGN.md
+/:
+  en: 469efab6f73f6e19
+  zh: 345345d95e4f7cfe
+/antfarm-implementation:
+  en: 28c2d4fc4a73d8d0
+  zh: 14e68f0dadd0c2c8
+/antfarm-implementation/summary:
+  en: 69399412e8d95a02
+  zh: 506a5be1725c8db9
+/antfarm-implementation/table-of-contents:
+  en: cd89b14577444e43
+  zh: d6a95f756eecbfd6
+/antfarm-implementation/execution-and-checkpoints:
+  en: 4b3eab8aa8a75bff
+  zh: 91e5934569ec4b67
+/antfarm-implementation/recovery-and-ownership:
+  en: 86c704d25d497ff2
+  zh: 9e473a34ef0cfb22
+/antfarm-implementation/workspace-lifecycle:
+  en: 8f9d287661fe38ce
+  zh: 72777bd3da9cff08
+/antfarm-implementation/client-and-packaging:
+  en: 8fbc997b85fd527a
+  zh: e6ebc7d7d4b78b70
+/antfarm-implementation/validation:
+  en: 2cf544e9755406ea
+  zh: 618a782ea56edf27
+/antfarm-implementation/validation/dev-note:
+  en: 20f5ca25c92267ca
+  zh: 82f6b6871091b9c9

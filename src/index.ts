@@ -3,3 +3,5 @@ export const name = 'dsh-antfarm-bundle'
 
 /** Root bundle entry contributes no runtime behavior. */
 export function apply(): void {}
+
+export { Config } from './client/config.ts'

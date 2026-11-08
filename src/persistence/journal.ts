@@ -1,341 +1,201 @@
-import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
-import type { ResolvedWorkflow } from '../workflow/types.ts'
-import type {
-  JournalEvent, JournalEventMap, JournalEventOf, JournalEventType, RunBlockedData, RunEndData, RunIsolation, RunStartData, RunResumeData, StepExecutionKind,
-  StoriesRegisteredData, StoryEndData, StepEndData, StepStartData, WorkspaceCleanedData, WorkspaceRetainedData,
-} from './types.ts'
+import { StringDecoder } from 'node:string_decoder'
+import { createHash, randomUUID } from 'node:crypto'
+/** Serialized, flush-on-append journal with validation at the disk boundary. */
+import { mkdir, open, readFile, realpath, rename } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { z } from 'zod'
+import { validateResolvedWorkflow } from '../workflow/loader.ts'
+import { foldJournal, type FoldedRun } from './fold.ts'
+import type { JournalEvent, JournalRecord, RunStartData } from './types.ts'
 
-const TYPES = new Set<JournalEventType>([
-  'run-start', 'step-start', 'step-end', 'stories-registered', 'story-end', 'run-blocked', 'run-resume', 'run-end', 'workspace-cleaned', 'workspace-retained',
+const id = z.string().regex(/^af-[a-z0-9-]{1,64}$/)
+const stringMap = z.record(z.string(), z.string())
+const story = z.strictObject({ id: z.string().min(1), title: z.string().min(1), description: z.string().min(1), acceptanceCriteria: z.array(z.string().min(1)).min(1), maxRetries: z.number().int().nonnegative(), status: z.enum(['pending', 'done', 'retry', 'failed']), retryCount: z.number().int().nonnegative(), feedback: z.string().optional() })
+const startSchema = z.strictObject({ runId: id, requestId: z.string().min(1).max(128).optional(), number: z.number().int().positive().optional(), ownerSessionId: z.string().min(1), workflowId: z.string().min(1), task: z.string().min(1), baseCwd: z.string().min(1), workspaceKind: z.enum(['git', 'files']).optional(), fileInputs: z.array(z.strictObject({ path: z.string(), sha256: z.string(), content: z.string() })).optional(), baseRevision: z.string(), workspace: z.string().min(1), branch: z.string(), provider: z.string().min(1), model: z.string().optional(), notificationUrl: z.string().url().optional(), githubReviewerTokenEnv: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(), executionPolicy: z.strictObject({ maxAttempts: z.number().int().positive().max(10000).optional(), timeoutSeconds: z.number().int().positive().max(2147483), maxStories: z.number().int().positive().max(100), maxStoryRetries: z.number().int().nonnegative().max(20), maxSummaryChars: z.number().int().positive().max(65536), cleanupCompleted: z.boolean(), cleanupCancelled: z.boolean() }).optional(), resolvedWorkflowSnapshot: z.unknown().transform(validateResolvedWorkflow) })
+const checkpoint = z.strictObject({ cursor: z.number().int().nonnegative(), context: stringMap, stories: z.array(story).nullable(), retries: z.record(z.string(), z.number().int().nonnegative()), feedback: stringMap, repair: z.strictObject({ targetId: z.string().min(1), sourceStepId: z.string().min(1) }).nullable(), acceptedChecks: z.record(z.string(), z.strictObject({ candidate: z.string().regex(/^[a-f0-9]{64}$/), callIds: z.array(z.string()) })).optional(), blocked: z.string().nullable() })
+const record = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('run-start'), data: startSchema }),
+  z.strictObject({ type: z.literal('run-dispatch'), data: z.strictObject({}) }),
+  z.strictObject({ type: z.literal('run-queue'), data: z.strictObject({}) }),
+  z.strictObject({ type: z.literal('run-interrupt'), data: z.strictObject({ reason: z.string() }) }),
+  z.strictObject({ type: z.literal('tail-recovered'), data: z.strictObject({ source: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/), bytes: z.number().int().positive() }) }),
+  z.strictObject({ type: z.literal('workspace-ready'), data: z.strictObject({}) }),
+  z.strictObject({ type: z.literal('attempt-start'), data: z.strictObject({ stepId: z.string().min(1), childSessionId: z.string().min(1), execution: z.enum(['single', 'story', 'verify', 'repair']), storyId: z.string().optional(), effect: z.enum(['pull-request', 'github-review']).optional(), candidate: z.string().regex(/^[a-f0-9]{64}$/).optional() }) }),
+  z.strictObject({ type: z.literal('attempt-end'), data: z.strictObject({ childSessionId: z.string().min(1), passed: z.boolean(), summary: z.string() }) }),
+  z.strictObject({ type: z.literal('check-evidence'), data: z.strictObject({ callId: z.string(), childSessionId: z.string(), stepId: z.string(), command: z.string(), cwd: z.string(), candidate: z.string(), afterCandidate: z.string(), passed: z.boolean(), exitCode: z.number().int().nullable(), stdout: z.string(), stderr: z.string() }) }),
+  z.strictObject({ type: z.literal('checkpoint'), data: checkpoint }),
+  z.strictObject({ type: z.literal('run-resume'), data: z.strictObject({ guidance: z.string(), retryGrant: z.number().int().nonnegative().max(20).optional() }) }),
+  z.strictObject({ type: z.literal('run-end'), data: z.strictObject({ status: z.enum(['completed', 'failed', 'cancelled']), reason: z.string() }) }),
+  z.strictObject({ type: z.literal('file-artifacts'), data: z.strictObject({ candidate: z.string(), artifacts: z.array(z.strictObject({ path: z.string(), sha256: z.string(), bytes: z.number().int().nonnegative() })) }) }),
+  z.strictObject({ type: z.literal('notification'), data: z.strictObject({ id: z.string(), channel: z.enum(['owner', 'webhook']), status: z.enum(['pending', 'delivered', 'failed']), detail: z.string().max(2048) }) }),
+  z.strictObject({ type: z.literal('health'), data: z.strictObject({ kind: z.string(), detail: z.string().max(2048) }) }),
+  z.strictObject({ type: z.literal('workspace-disposition'), data: z.strictObject({ disposition: z.enum(['retained', 'cleaned']), reason: z.string() }) }),
 ])
+const envelope = z.object({ version: z.literal(3), seq: z.number().int().nonnegative(), time: z.number().int().nonnegative() })
+const identity = z.object({ runId: id, number: z.number().int().positive().optional(), ownerSessionId: z.string().min(1), workflowId: z.string().min(1), workspace: z.string(), branch: z.string() })
 
-function object(value: unknown, label: string): Record<string, unknown> {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object`)
-  return value as Record<string, unknown>
-}
-
-function text(row: Record<string, unknown>, key: string, label: string): string {
-  const value = row[key]
-  if (typeof value !== 'string' || value === '') throw new Error(`${label}.${key} must be a non-empty string`)
-  return value
-}
-
-function optionalText(row: Record<string, unknown>, key: string, label: string): string | undefined {
-  const value = row[key]
-  if (value === undefined) return undefined
-  if (typeof value !== 'string') throw new Error(`${label}.${key} must be a string when present`)
-  return value
-}
-
-function optionalExecution(value: unknown, label: string): StepExecutionKind | undefined {
-  if (value === undefined) return undefined
-  if (value !== 'normal' && value !== 'story' && value !== 'verify' && value !== 'repair') throw new Error(`${label}.execution is invalid`)
-  return value
-}
-
-function integer(row: Record<string, unknown>, key: string, label: string, minimum = 0): number {
-  const value = row[key]
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) {
-    throw new Error(`${label}.${key} must be a safe integer >= ${minimum}`)
-  }
-  return value
-}
-
-function stringMap(value: unknown, label: string): Record<string, string> {
-  const row = object(value, label)
-  const result: Record<string, string> = {}
-  for (const [key, item] of Object.entries(row)) {
-    if (typeof item !== 'string') throw new Error(`${label}.${key} must be a string`)
-    result[key] = item
-  }
-  return result
-}
-
-function workflowSnapshot(value: unknown): ResolvedWorkflow {
-  const row = object(value, 'run-start.resolvedWorkflowSnapshot')
-  if (!Array.isArray(row['agents']) || !Array.isArray(row['steps'])) throw new Error('run-start.resolvedWorkflowSnapshot is invalid')
-  return value as ResolvedWorkflow
-}
-
-function runStart(value: unknown): RunStartData {
-  const row = object(value, 'run-start')
-  const isolation = text(row, 'isolation', 'run-start')
-  if (isolation !== 'worktree' && isolation !== 'shared') throw new Error('run-start.isolation is invalid')
-  const model = optionalText(row, 'model', 'run-start')
-  return {
-    runId: text(row, 'runId', 'run-start'),
-    ownerSessionId: text(row, 'ownerSessionId', 'run-start'),
-    workflowId: text(row, 'workflowId', 'run-start'),
-    task: text(row, 'task', 'run-start'),
-    baseCwd: text(row, 'baseCwd', 'run-start'),
-    baseRevision: text(row, 'baseRevision', 'run-start'),
-    baseStatus: optionalText(row, 'baseStatus', 'run-start') ?? '',
-    workspace: text(row, 'workspace', 'run-start'),
-    branch: text(row, 'branch', 'run-start'),
-    isolation: isolation as RunIsolation,
-    provider: text(row, 'provider', 'run-start'),
-    ...(model === undefined ? {} : { model }),
-    resolvedWorkflowSnapshot: workflowSnapshot(row['resolvedWorkflowSnapshot']),
-  }
-}
-
-function stepStart(value: unknown): StepStartData {
-  const row = object(value, 'step-start')
-  const storyId = optionalText(row, 'storyId', 'step-start')
-  const execution = optionalExecution(row['execution'], 'step-start')
-  const sourceStepId = optionalText(row, 'sourceStepId', 'step-start')
-  return { runId: text(row, 'runId', 'step-start'), stepId: text(row, 'stepId', 'step-start'), attempt: integer(row, 'attempt', 'step-start', 1), ...(storyId === undefined ? {} : { storyId }), ...(execution === undefined ? {} : { execution }), ...(sourceStepId === undefined ? {} : { sourceStepId }) }
-}
-
-function stepEnd(value: unknown): StepEndData {
-  const row = object(value, 'step-end')
-  const outcome = text(row, 'outcome', 'step-end')
-  if (outcome !== 'done' && outcome !== 'failed') throw new Error('step-end.outcome is invalid')
-  const storyId = optionalText(row, 'storyId', 'step-end')
-  const childSessionId = optionalText(row, 'childSessionId', 'step-end')
-  const error = optionalText(row, 'error', 'step-end')
-  const execution = optionalExecution(row['execution'], 'step-end')
-  const sourceStepId = optionalText(row, 'sourceStepId', 'step-end')
-  return {
-    runId: text(row, 'runId', 'step-end'),
-    stepId: text(row, 'stepId', 'step-end'),
-    attempt: integer(row, 'attempt', 'step-end', 1),
-    ...(storyId === undefined ? {} : { storyId }),
-    outcome,
-    contextDelta: stringMap(row['contextDelta'], 'step-end.contextDelta'),
-    ...(childSessionId === undefined ? {} : { childSessionId }),
-    ...(error === undefined ? {} : { error }),
-    ...(execution === undefined ? {} : { execution }),
-    ...(sourceStepId === undefined ? {} : { sourceStepId }),
-  }
-}
-
-function story(value: unknown, index: number): StoriesRegisteredData['stories'][number] {
-  const row = object(value, `stories-registered.stories[${index}]`)
-  const criteria = row['acceptanceCriteria']
-  if (!Array.isArray(criteria) || criteria.length === 0 || !criteria.every(item => typeof item === 'string' && item !== '')) {
-    throw new Error(`stories-registered.stories[${index}].acceptanceCriteria is invalid`)
-  }
-  return {
-    id: text(row, 'id', `stories-registered.stories[${index}]`),
-    title: text(row, 'title', `stories-registered.stories[${index}]`),
-    description: text(row, 'description', `stories-registered.stories[${index}]`),
-    acceptanceCriteria: criteria,
-    maxRetries: integer(row, 'maxRetries', `stories-registered.stories[${index}]`),
-  }
-}
-
-function storiesRegistered(value: unknown): StoriesRegisteredData {
-  const row = object(value, 'stories-registered')
-  const stories = row['stories']
-  if (!Array.isArray(stories) || stories.length === 0 || stories.length > 20) throw new Error('stories-registered.stories is invalid')
-  const parsed = stories.map(story)
-  if (new Set(parsed.map(item => item.id)).size !== parsed.length) throw new Error('stories-registered contains duplicate story ids')
-  return { runId: text(row, 'runId', 'stories-registered'), stepId: text(row, 'stepId', 'stories-registered'), stories: parsed }
-}
-
-function storyEnd(value: unknown): StoryEndData {
-  const row = object(value, 'story-end')
-  const outcome = text(row, 'outcome', 'story-end')
-  if (outcome !== 'done' && outcome !== 'retry' && outcome !== 'failed') throw new Error('story-end.outcome is invalid')
-  const feedback = optionalText(row, 'feedback', 'story-end')
-  return {
-    runId: text(row, 'runId', 'story-end'),
-    stepId: text(row, 'stepId', 'story-end'),
-    storyId: text(row, 'storyId', 'story-end'),
-    outcome,
-    retryCount: integer(row, 'retryCount', 'story-end'),
-    ...(feedback === undefined ? {} : { feedback }),
-  }
-}
-
-function runBlocked(value: unknown): RunBlockedData {
-  const row = object(value, 'run-blocked')
-  const storyId = optionalText(row, 'storyId', 'run-blocked')
-  const feedback = optionalText(row, 'feedback', 'run-blocked')
-  return {
-    runId: text(row, 'runId', 'run-blocked'),
-    stepId: text(row, 'stepId', 'run-blocked'),
-    ...(storyId === undefined ? {} : { storyId }),
-    reason: text(row, 'reason', 'run-blocked'),
-    ...(feedback === undefined ? {} : { feedback }),
-  }
-}
-
-function runResume(value: unknown): RunResumeData {
-  const row = object(value, 'run-resume')
-  const guidance = optionalText(row, 'guidance', 'run-resume')
-  const stepId = optionalText(row, 'stepId', 'run-resume')
-  const storyId = optionalText(row, 'storyId', 'run-resume')
-  return {
-    runId: text(row, 'runId', 'run-resume'),
-    authority: text(row, 'authority', 'run-resume'),
-    ...(guidance === undefined ? {} : { guidance }),
-    ...(stepId === undefined ? {} : { stepId }),
-    ...(storyId === undefined ? {} : { storyId }),
-  }
-}
-
-function runEnd(value: unknown): RunEndData {
-  const row = object(value, 'run-end')
-  const stopReason = text(row, 'stopReason', 'run-end')
-  if (stopReason !== 'completed' && stopReason !== 'failed' && stopReason !== 'cancelled') throw new Error('run-end.stopReason is invalid')
-  const error = optionalText(row, 'error', 'run-end')
-  return { runId: text(row, 'runId', 'run-end'), stopReason, ...(error === undefined ? {} : { error }) }
-}
-
-function workspaceCleaned(value: unknown): WorkspaceCleanedData {
-  const row = object(value, 'workspace-cleaned')
-  return { runId: text(row, 'runId', 'workspace-cleaned'), path: text(row, 'path', 'workspace-cleaned') }
-}
-
-function workspaceRetained(value: unknown): WorkspaceRetainedData {
-  const row = object(value, 'workspace-retained')
-  return { runId: text(row, 'runId', 'workspace-retained'), path: text(row, 'path', 'workspace-retained'), reason: text(row, 'reason', 'workspace-retained') }
-}
-
-function parseData<T extends JournalEventType>(type: T, value: unknown): JournalEventMap[T] {
-  switch (type) {
-    case 'run-start': return runStart(value) as JournalEventMap[T]
-    case 'step-start': return stepStart(value) as JournalEventMap[T]
-    case 'step-end': return stepEnd(value) as JournalEventMap[T]
-    case 'stories-registered': return storiesRegistered(value) as JournalEventMap[T]
-    case 'story-end': return storyEnd(value) as JournalEventMap[T]
-    case 'run-blocked': return runBlocked(value) as JournalEventMap[T]
-    case 'run-resume': return runResume(value) as JournalEventMap[T]
-    case 'run-end': return runEnd(value) as JournalEventMap[T]
-    case 'workspace-cleaned': return workspaceCleaned(value) as JournalEventMap[T]
-    case 'workspace-retained': return workspaceRetained(value) as JournalEventMap[T]
-  }
-}
-
-function parseEvent(value: unknown, expectedSeq: number, expectedRunId: string): JournalEvent {
-  const row = object(value, `journal event ${expectedSeq}`)
-  if (row['version'] !== 1) throw new Error(`journal event ${expectedSeq} has unsupported version`)
-  const seq = integer(row, 'seq', `journal event ${expectedSeq}`)
-  if (seq !== expectedSeq) throw new Error(`journal sequence gap: expected ${expectedSeq}, received ${seq}`)
-  const time = integer(row, 'time', `journal event ${expectedSeq}`)
-  const typeValue = row['type']
-  if (typeof typeValue !== 'string' || !TYPES.has(typeValue as JournalEventType)) throw new Error(`journal event ${expectedSeq} has unknown type`)
-  const type = typeValue as JournalEventType
-  const data = parseData(type, row['data'])
-  if (data.runId !== expectedRunId) throw new Error(`journal event ${expectedSeq} belongs to run "${data.runId}", expected "${expectedRunId}"`)
-  return { version: 1, seq, time, type, data } as JournalEvent
-}
-
-export type JournalStatusHint = 'active' | 'blocked' | 'completed' | 'failed' | 'cancelled'
-export interface JournalMeta {
-  readonly runId: string
-  readonly workflowId: string
-  readonly ownerSessionId: string
-  readonly updatedAt: number
-  readonly statusHint: JournalStatusHint
-}
-
-/** Flush-on-append owner for one run's event journal. */
-export class RunJournal {
-  readonly directory: string
-  readonly eventsPath: string
-  readonly metaPath: string
-  private nextSeq = 0
-  private statusHint: JournalStatusHint = 'active'
-
-  private constructor(readonly root: string, readonly runId: string) {
-    this.directory = join(resolve(root), runId)
-    this.eventsPath = join(this.directory, 'events.jsonl')
-    this.metaPath = join(this.directory, 'meta.json')
-  }
-
-  static async create(root: string, start: RunStartData): Promise<RunJournal> {
-    const journal = new RunJournal(root, start.runId)
-    await mkdir(resolve(root), { recursive: true })
-    await mkdir(journal.directory, { recursive: false })
-    await journal.writeMeta({ runId: start.runId, workflowId: start.workflowId, ownerSessionId: start.ownerSessionId, updatedAt: Date.now(), statusHint: 'active' })
-    await journal.append('run-start', start)
-    return journal
-  }
-
-  static async open(root: string, runId: string): Promise<RunJournal> {
-    const journal = new RunJournal(root, runId)
-    journal.nextSeq = (await journal.load()).length
-    try {
-      journal.statusHint = (await readJournalMeta(root, runId)).statusHint
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    return journal
-  }
-
-  async append<T extends JournalEventType>(type: T, data: JournalEventMap[T]): Promise<JournalEventOf<T>> {
-    if (data.runId !== this.runId) throw new Error(`cannot append run "${data.runId}" to journal "${this.runId}"`)
-    const event: JournalEventOf<T> = { version: 1, seq: this.nextSeq, time: Date.now(), type, data }
-    const handle = await open(this.eventsPath, 'a')
-    try {
-      await handle.write(`${JSON.stringify(event)}\n`)
-      await handle.sync()
-    } finally {
-      await handle.close()
-    }
-    this.nextSeq += 1
-    if (type === 'run-blocked') this.statusHint = 'blocked'
-    if (type === 'run-end') this.statusHint = (data as RunEndData).stopReason
-    await this.writeMeta(await this.readMeta(this.statusHint))
-    return event
-  }
-
-  async load(): Promise<JournalEvent[]> {
-    const content = await readFile(this.eventsPath, 'utf8')
-    const lines = content.split('\n').filter(line => line !== '')
-    return lines.map((line, index) => {
-      let value: unknown
-      try { value = JSON.parse(line) } catch (error: unknown) { throw new Error(`invalid JSON in journal line ${index + 1}`, { cause: error }) }
-      return parseEvent(value, index, this.runId)
-    })
-  }
-
-  private async readMeta(statusHint = this.statusHint): Promise<JournalMeta> {
-    try {
-      const parsed: unknown = JSON.parse(await readFile(this.metaPath, 'utf8'))
-      const row = object(parsed, 'journal meta')
-      const runId = text(row, 'runId', 'journal meta')
-      const workflowId = text(row, 'workflowId', 'journal meta')
-      const ownerSessionId = text(row, 'ownerSessionId', 'journal meta')
-      return { runId, workflowId, ownerSessionId, updatedAt: Date.now(), statusHint }
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error
-      throw new Error(`invalid journal meta for run "${this.runId}"`, { cause: error })
-    }
-  }
-
-  private async writeMeta(meta: JournalMeta): Promise<void> {
-    await mkdir(dirname(this.metaPath), { recursive: true })
-    const temporary = `${this.metaPath}.tmp`
-    await writeFile(temporary, `${JSON.stringify(meta)}\n`, 'utf8')
-    await rename(temporary, this.metaPath)
-  }
-}
-
-/** Read the fast-locator metadata without treating it as run state. */
-export async function readJournalMeta(root: string, runId: string): Promise<JournalMeta> {
-  const path = join(resolve(root), runId, 'meta.json')
-  let parsed: unknown
+/**
+ * Read a journal's first identity without interpreting old business state.
+ * @param root - Configured journal root.
+ * @param runId - Safe run directory identifier.
+ * @returns Validated attribution and the recorded format version.
+ */
+export async function readJournalIdentity(root: string, runId: string) {
+  id.parse(runId)
+  const directory = join(await realpath(root), runId)
+  if (await realpath(directory) !== directory) throw new Error('journal directory resolves outside its recorded path')
+  const path = join(directory, 'events.jsonl')
+  if (await realpath(path) !== path) throw new Error('journal identity file must not be a symbolic link')
+  const file = await open(path, 'r')
+  let source = ''
+  const decoder = new StringDecoder('utf8')
   try {
-    parsed = JSON.parse(await readFile(path, 'utf8'))
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error
-    throw new Error(`unable to read journal meta for run "${runId}"`, { cause: error })
+    const buffer = Buffer.alloc(65536)
+    while (!source.includes('\n')) {
+      const { bytesRead } = await file.read(buffer)
+      if (bytesRead === 0) break
+      source += decoder.write(buffer.subarray(0, bytesRead))
+      if (Buffer.byteLength(source) > 4 * 1024 * 1024) throw new Error('journal identity exceeds the supported size')
+    }
+  } finally { await file.close() }
+  const first = z.object({ version: z.number(), data: identity }).parse(JSON.parse(source.split('\n', 1)[0] ?? ''))
+  if (first.data.runId !== runId) throw new Error('journal identity differs from its directory')
+  return first
+}
+
+/** A single writer owns committed state; readers never observe unflushed changes. */
+export class RunJournal {
+  private writing: Promise<void> = Promise.resolve()
+  private committed: FoldedRun | undefined
+  private constructor(readonly eventsPath: string, private events: JournalEvent[]) {
+    if (events.length > 0) this.committed = foldJournal(events)
   }
-  const row = object(parsed, 'journal meta')
-  const value = row['statusHint']
-  if (value !== 'active' && value !== 'blocked' && value !== 'completed' && value !== 'failed' && value !== 'cancelled') {
-    throw new Error(`journal meta for run "${runId}" has invalid statusHint`)
+
+  /** Revision of the last committed event; used to reject stale UI actions. */
+  get revision(): number { return this.events.length - 1 }
+
+  /** Original start time of the unsettled native attempt; diagnostics do not renew its deadline. */
+  get attemptTime(): number | undefined { return this.events.findLast(event => event.type === 'attempt-start')?.time }
+
+  /** @param type - Committed fact kind. @returns Last matching event without scanning through a Remote. */
+  latest(type: JournalRecord['type']): JournalEvent | undefined { return this.events.findLast(event => event.type === type) }
+
+  /** @param id - Stable notice identity. @param channel - Destination channel. @returns Whether durable delivery was already confirmed. */
+  delivered(id: string, channel: 'owner' | 'webhook'): boolean { return this.events.some(event => event.type === 'notification' && event.data.id === id && event.data.channel === channel && event.data.status === 'delivered') }
+
+  /** @param after - Exclusive event cursor. @param limit - Maximum records. @returns Committed event page. */
+  records(after: number, limit: number): readonly JournalEvent[] {
+    if (!Number.isInteger(after) || after < -1 || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('invalid event page')
+    return this.events.slice(after + 1, after + 1 + limit)
   }
-  return {
-    runId: text(row, 'runId', 'journal meta'),
-    workflowId: text(row, 'workflowId', 'journal meta'),
-    ownerSessionId: text(row, 'ownerSessionId', 'journal meta'),
-    updatedAt: integer(row, 'updatedAt', 'journal meta', 0),
-    statusHint: value,
+
+  /** Last successfully flushed reducer result. */
+  get state(): FoldedRun { if (this.committed === undefined) throw new Error('Run start has not committed'); return this.committed }
+
+  /**
+   * Create a unique journal and persist its start before accepting work.
+   * @param root - Configured storage directory.
+   * @param start - Validated resolved execution inputs.
+   * @returns Sole writer for the new run.
+   */
+  static async create(root: string, start: RunStartData): Promise<RunJournal> {
+    startSchema.parse(start)
+    await mkdir(resolve(root), { recursive: true })
+    const directory = join(await realpath(root), start.runId)
+    await mkdir(directory)
+    const journal = new RunJournal(join(directory, 'events.jsonl'), [])
+    await journal.append({ type: 'run-start', data: start })
+    return journal
   }
+
+  /**
+   * Open version 3 evidence without modifying its bytes.
+   * @param root - Configured storage directory.
+   * @param runId - Safe run identity.
+   * @returns Writer; unsupported, truncated, or corrupt evidence rejects.
+   */
+  static async open(root: string, runId: string): Promise<RunJournal> {
+    id.parse(runId)
+    const directory = join(await realpath(root), runId)
+    if (await realpath(directory) !== directory) throw new Error('journal directory resolves outside its recorded path')
+    const path = join(directory, 'events.jsonl')
+    if (await realpath(path) !== path) throw new Error('journal file resolves outside its recorded path')
+    const source = await readFile(path, 'utf8')
+    if (!source.endsWith('\n')) throw new Error('journal has an incomplete final record; retain evidence before recovery')
+    const events: JournalEvent[] = source.slice(0, -1).split('\n').map((line, seq) => {
+      const value: unknown = JSON.parse(line)
+      const meta = envelope.parse(value)
+      if (meta.seq !== seq) throw new Error('journal has a sequence gap')
+      const payload = z.object({ type: z.string(), data: z.unknown() }).parse(value)
+      return { ...record.parse(payload), ...meta }
+    })
+    const journal = new RunJournal(join(directory, 'events.jsonl'), events)
+    if (journal.state.start.runId !== runId) throw new Error('journal identity differs from its directory')
+    return journal
+  }
+
+  /**
+   * Recover only an incomplete final write under the storage-root writer lock.
+   * @param root - Owned storage root.
+   * @param runId - Run whose complete prefix will be validated.
+   * @returns Recovered journal with a retained, hashed source receipt.
+   */
+  static async recoverTail(root: string, runId: string): Promise<RunJournal> {
+    const first = await readJournalIdentity(root, runId)
+    if (first.version !== 3) throw new Error('only version 3 torn tails can be recovered')
+    const directory = join(await realpath(root), id.parse(runId))
+    const path = join(directory, 'events.jsonl')
+    if (await realpath(path) !== path) throw new Error('journal file must not be a symbolic link')
+    const bytes = await readFile(path)
+    if (bytes.at(-1) === 10) return RunJournal.open(root, runId)
+    const last = bytes.lastIndexOf(10)
+    if (last < 0) throw new Error('journal has no proven complete prefix')
+    const prefix = bytes.subarray(0, last + 1)
+    const events = prefix.toString('utf8').trimEnd().split('\n').map((line, seq) => {
+      const value: unknown = JSON.parse(line)
+      const meta = envelope.parse(value)
+      if (meta.seq !== seq) throw new Error('journal has a sequence gap')
+      return { ...record.parse(z.object({ type: z.string(), data: z.unknown() }).parse(value)), ...meta }
+    })
+    const journal = new RunJournal(path, events)
+    if (journal.state.start.runId !== runId) throw new Error('journal identity differs')
+    const source = `events.torn-${randomUUID()}.jsonl`
+    const temporary = join(directory, `events.recovered-${randomUUID()}.tmp`)
+    const receipt: JournalEvent = { type: 'tail-recovered', data: { source, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }, version: 3, seq: events.length, time: Date.now() }
+    foldJournal([...events, receipt])
+    const recoveredBytes = Buffer.concat([prefix, Buffer.from(`${JSON.stringify(receipt)}\n`)])
+    for (const [target, content] of [[join(directory, source), bytes], [temporary, recoveredBytes]] as const) {
+      const file = await open(target, 'wx', 0o600)
+      try { await file.writeFile(content); await file.sync() } finally { await file.close() }
+    }
+    await syncDirectory(directory)
+    await rename(temporary, path)
+    await syncDirectory(directory)
+    return new RunJournal(path, [...events, receipt])
+  }
+
+  /**
+   * Serialize and flush one complete state transition.
+   * @param value - Business checkpoint or execution fact.
+   * @returns Completion after the write and reducer commit; failure poisons this writer.
+   */
+  append(value: JournalRecord): Promise<void> {
+    const operation = this.writing.then(async () => {
+      const event: JournalEvent = { ...record.parse(value), version: 3, seq: this.events.length, time: Date.now() }
+      const next = [...this.events, event]
+      const state = foldJournal(next)
+      const file = await open(this.eventsPath, 'a')
+      try { await file.writeFile(`${JSON.stringify(event)}\n`); await file.sync() } finally { await file.close() }
+      if (event.seq === 0) { await syncDirectory(resolve(this.eventsPath, '..')); await syncDirectory(resolve(this.eventsPath, '../..')) }
+      this.events = next
+      this.committed = state
+    })
+    this.writing = operation
+    return operation
+  }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  const file = await open(path, 'r')
+  try { await file.sync() } finally { await file.close() }
 }

@@ -1,99 +1,195 @@
 id: bug-fix
-name: Bug Fix
-version: 1
-description: Reproduce a defect, implement bounded repair stories, verify each repair, and run regression checks.
+name: Bug fix
+version: 2
+description: Reproduce, investigate, prepare, fix, verify regressions, and deliver a PR.
 agents:
   - id: analyst
     name: Bug analyst
-    role: analysis
-    extends: shared/bug-analyst
     timeoutSeconds: 900
+    preset: antfarm-scanning
+    instructions: ../shared/bug-analyst.md
   - id: fixer
     name: Fix implementer
-    role: coding
-    extends: shared/fixer
     timeoutSeconds: 1800
+    preset: antfarm-coding
+    instructions: ../shared/fixer.md
   - id: verifier
     name: Fix verifier
-    role: verification
-    extends: shared/verifier
     timeoutSeconds: 900
+    preset: antfarm-verification
+    instructions: ../shared/verifier.md
   - id: tester
     name: Regression tester
-    role: testing
-    extends: shared/tester
     timeoutSeconds: 1200
+    preset: antfarm-verification
+    instructions: ../shared/tester.md
+  - id: investigator
+    name: Root cause investigator
+    preset: antfarm-scanning
+    instructions: ../shared/investigator.md
+    timeoutSeconds: 900
+  - id: setup
+    name: Workspace setup
+    preset: antfarm-coding
+    instructions: ../feature-dev/agents/setup.md
+    timeoutSeconds: 1200
+  - id: pr
+    name: PR delivery
+    preset: antfarm-pr
+    instructions: ../shared/pr.md
+    timeoutSeconds: 900
 steps:
   - id: reproduce
     agent: analyst
     type: single
-    input: |
+    input: >
       Reproduce and analyze this defect in {{workspace}}:
+
 
       {{task}}
 
-      Produce a bounded repair plan as STORIES_JSON. Every story must include a regression criterion tied to the reproduction. End with STATUS: done.
-    expects: "STATUS: done"
+
+      Return a small ordered repair plan. Every story needs a regression
+      criterion tied to the reproduction.
+
+
+      Return repro_steps, root_cause, affected_paths and regression criteria.
     maxRetries: 2
+    output: stories
+  - id: investigate
+    agent: investigator
+    type: single
+    output: result
+    maxRetries: 2
+    input: >-
+      Investigate {{task}} in {{workspace}}.
+
+      Prior reproduction and findings: {{results}}
+
+      Return root_cause, affected_paths and fix_approach. Execute the
+      reproduction to verify the cause.
+  - id: setup
+    agent: setup
+    type: single
+    output: result
+    maxRetries: 2
+    input: >-
+      Prepare {{workspace}} for {{task}}. Read repository instructions,
+      dependencies and baseline.
+
+      {{results}}
+
+      Return test_cmd, build_cmd, environment and baseline without implementing
+      the task.
   - id: repair
     agent: fixer
     type: loop
     over: stories
     completion: all_done
     freshSession: true
-    input: |
+    input: >
       Repair only this story:
+
 
       {{current_story}}
 
+
       Previous verification feedback:
+
       {{verify_feedback}}
 
-      Preserve unrelated work, add regression coverage, report CHANGES, and end with STATUS: done.
-    expects: "STATUS: done"
+
+      Preserve unrelated work, add regression coverage, and summarize the
+      changed paths and test results.
+
+
+      Commit the focused, tested repair on the supplied branch.
     maxRetries: 1
     verifyEach: true
     verifyStep: verify-fix
-    repairInput: |
-      Repair the completed fix after regression testing failed.
+    repairInput: >
+      Repair the fix after regression testing failed.
+
 
       {{issues}}
 
+
       Completed repairs:
+
       {{stories_summary}}
 
-      Make the smallest complete correction, report CHANGES, and end with STATUS: done.
+
+      Make the smallest complete correction, run regression checks, and
+      summarize changed paths and test results.
   - id: verify-fix
     agent: verifier
     type: single
-    input: |
+    input: >
       Independently verify this repair story:
+
 
       {{current_story}}
 
+
       Claimed changes:
+
       {{changes}}
 
-      Re-run the reproduction and focused regression checks. End with STATUS: done, or STATUS: retry and ISSUES.
-    expects: "STATUS: done"
+
+      Repeat the reproduction and focused regression checks. Report any
+      remaining defect or missing coverage.
     maxRetries: 1
     onFail:
       maxRetries: 2
       onExhausted:
         escalateTo: human
+    output: result
+    requireChecks: true
+    requireVisuals: true
   - id: regression
     agent: tester
     type: single
-    input: |
+    input: >
       Run the appropriate regression checks for this repaired defect:
+
 
       {{task}}
 
-      End with STATUS: done only when checks pass; otherwise STATUS: retry and ISSUES.
-    expects: "STATUS: done"
+
+      Report failures with reproduction details.
+
+
+      Check every accepted criterion against the complete candidate and cite
+      actual successful shell commands in checks. Use the recorded test_cmd and
+      build_cmd when relevant. Run browser E2E when the diff changes frontend
+      behavior.
     maxRetries: 1
     onFail:
       retryStep: repair
       maxRetries: 2
       onExhausted:
         escalateTo: human
+    output: result
+    requireChecks: true
+    requireVisuals: true
+  - id: pr
+    agent: pr
+    type: single
+    output: result
+    effect: pull-request
+    maxRetries: 0
+    input: >-
+      Deliver the checked candidate for {{task}} from {{workspace}} on
+      {{branch}}.
+
+      Accepted results: {{results}}
+
+      Inspect the existing remote branch and PR before any push or creation.
+      Update the existing PR for this branch when present. Do not merge or force
+      push. Return pr_url and pr_head in named values.
+    onFail:
+      maxRetries: 0
+      onExhausted:
+        escalateTo: human
+workspace: git
+allowEmptyPlan: false

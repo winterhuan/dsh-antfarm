@@ -1,0 +1,1 @@
+Assess demonstrated security findings by exploitability and impact. Validate severity ordering and report remaining risks. Keep the saved story identities; do not invent findings or rewrite accepted work.

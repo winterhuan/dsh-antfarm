@@ -1,102 +1,98 @@
-import { copyFile, mkdir, open, readFile, realpath, stat, unlink } from 'node:fs/promises'
+/** Own project-local Git worktrees and retain output when cleanup is unsafe. */
+
+import { lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 
 const OUTPUT_LIMIT = 1024 * 1024
 const GRACE_MS = 5_000
+type GitSubprocess = Pick<SubprocessRuntime, 'resolveExecutable' | 'spawn'>
 
+/** Complete collected output of one Git command. */
 export interface GitCommandResult {
   readonly stdout: string
   readonly stderr: string
   readonly exitCode: number | null
 }
 
-/** Run one argv-only Git command through the host execution world. */
-export async function runGit(
-  subprocess: SubprocessRuntime,
-  cwd: string,
-  args: readonly string[],
-  signal?: AbortSignal,
-): Promise<GitCommandResult> {
-  const git = await subprocess.resolveExecutable('git', undefined, signal)
+/**
+ * Execute Git through the configured subprocess provider, without a shell.
+ * @param subprocess - Host execution provider.
+ * @param cwd - Working directory.
+ * @param args - Literal Git arguments.
+ * @param signal - Cancellation signal.
+ * @returns Complete command output; rejects lossy collection.
+ */
+export async function runGit(subprocess: GitSubprocess, cwd: string, args: readonly string[], signal?: AbortSignal): Promise<GitCommandResult> {
+  return runExecutable(subprocess, 'git', cwd, args, signal)
+}
+
+/** @param subprocess - Native provider. @param program - Executable name. @param cwd - Authorized workspace. @param args - Literal arguments. @param signal - Lifetime. @returns Complete collected output. */
+export async function runExecutable(subprocess: GitSubprocess, program: string, cwd: string, args: readonly string[], signal?: AbortSignal, env?: Readonly<Record<string, string>>): Promise<GitCommandResult> {
+  signal?.throwIfAborted()
+  const executable = await subprocess.resolveExecutable(program, undefined, signal)
   const handle = subprocess.spawn({
-    argv: [git, ...args],
-    cwd,
-    stdio: {
-      stdin: 'ignore',
-      stdout: { maxBytes: OUTPUT_LIMIT },
-      stderr: { maxBytes: OUTPUT_LIMIT },
-    },
-    graceMs: GRACE_MS,
-    ...(signal === undefined ? {} : { signal }),
+    argv: [executable, ...args], cwd,
+    stdio: { stdin: 'ignore', stdout: { maxBytes: OUTPUT_LIMIT }, stderr: { maxBytes: OUTPUT_LIMIT } },
+    graceMs: GRACE_MS, ...(signal === undefined ? {} : { signal }),
+    ...(env === undefined ? {} : { env }),
   })
   const outcome = await handle.done
-  return {
-    stdout: handle.collected.stdout?.readFrom(0).text ?? '',
-    stderr: handle.collected.stderr?.readFrom(0).text ?? '',
-    exitCode: outcome.exitCode,
-  }
+  await handle.waitForExit()
+  const stdout = handle.collected.stdout?.readFrom(0)
+  const stderr = handle.collected.stderr?.readFrom(0)
+  if (stdout?.lossy || stderr?.lossy) throw new Error(program === 'git' ? 'Git output exceeded the collection limit; workspace state cannot be verified' : 'command output exceeded the collection limit; state cannot be verified')
+  signal?.throwIfAborted()
+  return { stdout: stdout?.text ?? '', stderr: stderr?.text ?? '', exitCode: outcome.exitCode }
 }
 
-async function checkedGit(subprocess: SubprocessRuntime, cwd: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
+async function checkedGit(subprocess: GitSubprocess, cwd: string, args: readonly string[], signal?: AbortSignal): Promise<string> {
   const result = await runGit(subprocess, cwd, args, signal)
-  if (result.exitCode !== 0) {
-    const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode ?? 'signal'}`
-    throw new Error(`git ${args.join(' ')} failed: ${detail}`)
-  }
-  return result.stdout.trim()
+  if (result.exitCode !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed with exit ${result.exitCode ?? 'signal'}`)
+  return result.stdout.replace(/\r?\n$/, '')
 }
 
+/** Canonical repository identity and the commit selected for new worktrees. */
 export interface PreparedRepository {
   readonly root: string
   readonly baseRevision: string
-  readonly baseStatus: string
   readonly gitCommonDirectory: string
 }
 
-/** Resolve and validate the repository facts needed before a job is committed. */
-export async function prepareRepository(subprocess: SubprocessRuntime, cwd: string, signal?: AbortSignal): Promise<PreparedRepository> {
-  const canonicalCwd = await realpath(cwd)
-  if (!(await stat(canonicalCwd)).isDirectory()) throw new Error(`base cwd is not a directory: ${canonicalCwd}`)
-  const root = await realpath(await checkedGit(subprocess, canonicalCwd, ['rev-parse', '--show-toplevel'], signal))
-  const bare = await checkedGit(subprocess, root, ['rev-parse', '--is-bare-repository'], signal)
-  if (bare !== 'false') throw new Error(`antfarm requires a non-bare Git working tree: ${root}`)
-  const baseRevision = await checkedGit(subprocess, root, ['rev-parse', 'HEAD'], signal)
-  const baseStatus = await checkedGit(subprocess, root, ['status', '--porcelain=v1', '--untracked-files=all'], signal)
-  const rawCommon = await checkedGit(subprocess, root, ['rev-parse', '--git-common-dir'], signal)
-  const gitCommonDirectory = await realpath(isAbsolute(rawCommon) ? rawCommon : resolve(root, rawCommon))
-  return { root, baseRevision, baseStatus, gitCommonDirectory }
+async function commonDirectory(subprocess: GitSubprocess, cwd: string, signal?: AbortSignal): Promise<string> {
+  const common = await checkedGit(subprocess, cwd, ['rev-parse', '--git-common-dir'], signal)
+  return realpath(isAbsolute(common) ? common : resolve(cwd, common))
 }
 
-function resolveWorktree(root: string, directory: string, runId: string): string {
-  if (isAbsolute(directory)) throw new Error('worktreeDirectory must be relative to the repository root')
+/**
+ * Capture a non-bare repository's identity and current commit.
+ * @param subprocess - Host execution provider.
+ * @param cwd - Any directory within the repository.
+ * @param signal - Cancellation signal.
+ * @returns Canonical root, common Git directory, and full commit hash.
+ */
+export async function prepareRepository(subprocess: GitSubprocess, cwd: string, signal?: AbortSignal): Promise<PreparedRepository> {
+  const canonicalCwd = await realpath(cwd)
+  if (!(await stat(canonicalCwd)).isDirectory()) throw new Error('base cwd must be a directory')
+  if (await checkedGit(subprocess, canonicalCwd, ['rev-parse', '--is-bare-repository'], signal) !== 'false') throw new Error('antfarm requires a non-bare Git working tree')
+  const root = await realpath(await checkedGit(subprocess, canonicalCwd, ['rev-parse', '--show-toplevel'], signal))
+  const baseRevision = await checkedGit(subprocess, root, ['rev-parse', '--verify', 'HEAD^{commit}'], signal)
+  return { root, baseRevision, gitCommonDirectory: await commonDirectory(subprocess, root, signal) }
+}
+
+function withinRoot(root: string, path: string): boolean {
+  const rel = relative(root, path)
+  return !isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`)
+}
+
+function worktreePath(root: string, directory: string, runId: string): string {
+  if (!isAbsolute(root) || isAbsolute(directory) || /[\0\r\n]/.test(directory)) throw new Error('worktreeDirectory must be a relative directory within the repository')
   const base = resolve(root, directory)
-  const rel = relative(root, base)
-  if (rel === '..' || rel.startsWith(`..${sep}`) || rel === '') throw new Error('worktreeDirectory must name a child directory of the repository root')
+  if (base === root || !withinRoot(root, base)) throw new Error('worktreeDirectory must name a child directory of the repository root')
   return join(base, runId)
 }
 
-async function ensureLocalExclude(gitCommonDirectory: string, worktreeDirectory: string): Promise<void> {
-  const exclude = join(gitCommonDirectory, 'info', 'exclude')
-  await mkdir(dirname(exclude), { recursive: true })
-  let current = ''
-  try {
-    current = await readFile(exclude, 'utf8')
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  const relativeDirectory = `/${worktreeDirectory.replaceAll('\\', '/').replace(/\/+$/, '')}/`
-  if (current.split(/\r?\n/).some(line => line.trim() === relativeDirectory)) return
-  const handle = await open(exclude, 'a')
-  try {
-    if (current !== '' && !current.endsWith('\n')) await handle.write('\n')
-    await handle.write(`# dsh-antfarm managed worktrees\n${relativeDirectory}\n`)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
+/** Deterministic path and branch reserved for one run. */
 export interface WorktreeSpec {
   readonly runId: string
   readonly branch: string
@@ -105,79 +101,131 @@ export interface WorktreeSpec {
   readonly directory: string
 }
 
-/** Reserve the deterministic path and branch for one run without mutating Git. */
+/**
+ * Resolve the run's expected worktree identity without mutating Git.
+ * @param repository - Captured repository identity.
+ * @param worktreeDirectory - Project-relative destination directory.
+ * @param runId - Run identifier.
+ * @returns Expected branch and absolute worktree path.
+ */
 export function resolveWorktreeSpec(repository: PreparedRepository, worktreeDirectory: string, runId: string): WorktreeSpec {
-  if (!/^[a-z0-9][a-z0-9-]*$/.test(runId)) throw new Error(`invalid run id: ${runId}`)
-  return { runId, branch: `antfarm/${runId}`, path: resolveWorktree(repository.root, worktreeDirectory, runId), repository, directory: worktreeDirectory }
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(runId)) throw new Error('invalid worktree run id')
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(repository.baseRevision)) throw new Error('worktree base revision must be a full Git commit hash')
+  const path = worktreePath(repository.root, worktreeDirectory, runId)
+  if (withinRoot(repository.gitCommonDirectory, path) || withinRoot(join(repository.root, '.git'), path)) throw new Error('worktreeDirectory must be outside Git metadata')
+  return { runId, branch: `antfarm/${runId}`, path, repository, directory: relative(repository.root, dirname(path)) }
 }
 
-/** Create one owned Git worktree and its run branch. */
-export async function createWorktree(subprocess: SubprocessRuntime, spec: WorktreeSpec, signal?: AbortSignal): Promise<void> {
-  const tracked = await runGit(subprocess, spec.repository.root, ['ls-files', '.worktrees'], signal)
-  if (tracked.exitCode !== 0) throw new Error(tracked.stderr.trim() || 'unable to inspect tracked .worktrees paths')
-  if (tracked.stdout.trim() !== '') throw new Error('repository tracks .worktrees; antfarm refuses to place generated worktrees there')
-  await ensureLocalExclude(spec.repository.gitCommonDirectory, spec.directory)
+async function validateSpec(subprocess: GitSubprocess, spec: WorktreeSpec, signal?: AbortSignal): Promise<void> {
+  const expected = resolveWorktreeSpec(spec.repository, spec.directory, spec.runId)
+  if (spec.path !== expected.path || spec.branch !== expected.branch) throw new Error('worktree path or branch does not match its run identity')
+  if (await realpath(spec.repository.root) !== spec.repository.root) throw new Error('repository root is no longer canonical')
+  const root = await realpath(await checkedGit(subprocess, spec.repository.root, ['rev-parse', '--show-toplevel'], signal))
+  if (root !== spec.repository.root || await commonDirectory(subprocess, root, signal) !== spec.repository.gitCommonDirectory) throw new Error('repository Git identity changed')
+}
+
+async function assertCanonicalAncestors(path: string): Promise<void> {
+  let current = path
+  for (;;) {
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error('worktree path contains a symlink or moved directory')
+      if (await realpath(current) !== current) throw new Error('worktree path contains a symlink or moved directory')
+      return
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const parent = dirname(current)
+      if (parent === current) throw error
+      current = parent
+    }
+  }
+}
+
+async function rejectTrackedDirectory(subprocess: GitSubprocess, spec: WorktreeSpec, signal?: AbortSignal): Promise<void> {
+  const directory = spec.directory.split(sep).join('/')
+  const ancestors = directory.split('/').map((_part, index, parts) => parts.slice(0, index + 1).join('/'))
+  const tracked = await checkedGit(subprocess, spec.repository.root, ['ls-files', '-z', '--', ...ancestors.map(path => `:(literal)${path}`)], signal)
+  if (tracked.split('\0').some(path => path !== '' && (path === directory || path.startsWith(`${directory}/`) || directory.startsWith(`${path}/`)))) throw new Error(`repository tracks ${directory} or its ancestor; antfarm refuses this worktree directory`)
+}
+
+async function ensureLocalExclude(spec: WorktreeSpec): Promise<void> {
+  const info = join(spec.repository.gitCommonDirectory, 'info')
+  const exclude = join(info, 'exclude')
+  await assertCanonicalAncestors(exclude)
+  await mkdir(info, { recursive: true })
+  let current = ''
+  try { current = await readFile(exclude, 'utf8') } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const path = spec.directory.split(sep).join('/').replace(/([\\#!*?\[\] ])/g, '\\$1')
+  const pattern = `/${path}/`
+  if (current.split(/\r?\n/).includes(pattern)) return
+  const handle = await open(exclude, 'a')
+  try {
+    await handle.write(`${current !== '' && !current.endsWith('\n') ? '\n' : ''}${pattern}\n`)
+    await handle.sync()
+  } finally { await handle.close() }
+}
+
+/**
+ * Create a new worktree after verifying repository, destination, and branch ownership.
+ * @param subprocess - Host execution provider.
+ * @param spec - Expected run worktree.
+ * @param signal - Cancellation signal.
+ */
+export async function createWorktree(subprocess: GitSubprocess, spec: WorktreeSpec, signal?: AbortSignal): Promise<void> {
+  await validateSpec(subprocess, spec, signal)
+  await rejectTrackedDirectory(subprocess, spec, signal)
+  await assertCanonicalAncestors(spec.path)
+  try {
+    await lstat(spec.path)
+    throw new Error('worktree destination already exists')
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  await ensureLocalExclude(spec)
   await mkdir(dirname(spec.path), { recursive: true })
+  await assertCanonicalAncestors(dirname(spec.path))
+  await mkdir(spec.path)
   await checkedGit(subprocess, spec.repository.root, ['worktree', 'add', '-b', spec.branch, spec.path, spec.repository.baseRevision], signal)
+  await validateWorktree(subprocess, spec, signal)
 }
 
+/**
+ * Verify a retained worktree's path, Git repository, branch, and base ancestry.
+ * @param subprocess - Host execution provider.
+ * @param spec - Journal-recorded run worktree.
+ * @param signal - Cancellation signal.
+ */
+export async function validateWorktree(subprocess: GitSubprocess, spec: WorktreeSpec, signal?: AbortSignal): Promise<void> {
+  await validateSpec(subprocess, spec, signal)
+  if (await realpath(spec.path) !== spec.path) throw new Error('worktree path is no longer canonical')
+  const root = await realpath(await checkedGit(subprocess, spec.path, ['rev-parse', '--show-toplevel'], signal))
+  if (root !== spec.path || await commonDirectory(subprocess, spec.path, signal) !== spec.repository.gitCommonDirectory) throw new Error('worktree belongs to a different Git repository')
+  const branch = await runGit(subprocess, spec.path, ['symbolic-ref', '--quiet', '--short', 'HEAD'], signal)
+  if (branch.exitCode !== 0 || branch.stdout.trim() !== spec.branch) throw new Error(`worktree branch changed or is detached; expected ${spec.branch}`)
+  if ((await runGit(subprocess, spec.path, ['merge-base', '--is-ancestor', spec.repository.baseRevision, 'HEAD'], signal)).exitCode !== 0) throw new Error('worktree HEAD no longer descends from its recorded base revision')
+}
+
+/** Outcome of clean-only worktree removal. */
 export interface WorktreeCleanupResult {
   readonly disposition: 'cleaned' | 'retained'
   readonly reason?: string
 }
 
-/** Remove an owned worktree only when Git reports no tracked or untracked changes. */
-export async function cleanupWorktree(subprocess: SubprocessRuntime, spec: WorktreeSpec): Promise<WorktreeCleanupResult> {
-  let status: GitCommandResult
+/**
+ * Remove only an unchanged worktree whose complete identity still matches the run.
+ * @param subprocess - Host execution provider.
+ * @param spec - Journal-recorded run worktree.
+ * @returns Retained on identity mismatch, tracked/untracked changes, or Git failure.
+ */
+export async function cleanupWorktree(subprocess: GitSubprocess, spec: WorktreeSpec): Promise<WorktreeCleanupResult> {
   try {
-    status = await runGit(subprocess, spec.path, ['status', '--porcelain=v1', '--untracked-files=all'])
+    await validateWorktree(subprocess, spec)
+    const status = await checkedGit(subprocess, spec.path, ['status', '--porcelain=v1', '--untracked-files=all', '--ignored=matching'])
+    if (status !== '') return { disposition: 'retained', reason: 'worktree contains tracked or untracked changes' }
+    await checkedGit(subprocess, spec.repository.root, ['worktree', 'remove', spec.path])
+    return { disposition: 'cleaned' }
   } catch (error: unknown) {
     return { disposition: 'retained', reason: error instanceof Error ? error.message : String(error) }
   }
-  if (status.exitCode !== 0) return { disposition: 'retained', reason: status.stderr.trim() || 'unable to inspect worktree status' }
-  if (status.stdout !== '') return { disposition: 'retained', reason: 'worktree contains tracked or untracked changes' }
-  const removed = await runGit(subprocess, spec.repository.root, ['worktree', 'remove', spec.path])
-  if (removed.exitCode !== 0) return { disposition: 'retained', reason: removed.stderr.trim() || 'git worktree remove failed' }
-  await runGit(subprocess, spec.repository.root, ['worktree', 'prune'])
-  return { disposition: 'cleaned' }
-}
-
-/** Copy explicitly configured environment files into an owned worktree. */
-export async function copyWorktreeFiles(files: readonly string[], repositoryRoot: string, workspace: string): Promise<readonly string[]> {
-  const copied: string[] = []
-  for (const file of files) {
-    if (isAbsolute(file)) throw new Error(`envFiles entry must be relative to the repository root: ${file}`)
-    const source = resolve(repositoryRoot, file)
-    const relativeSource = relative(repositoryRoot, source)
-    if (relativeSource === '..' || relativeSource.startsWith(`..${sep}`)) throw new Error(`envFiles entry escapes the repository root: ${file}`)
-    const destination = resolve(workspace, file)
-    const relativeDestination = relative(workspace, destination)
-    if (relativeDestination === '..' || relativeDestination.startsWith(`..${sep}`)) throw new Error(`envFiles entry escapes the worktree: ${file}`)
-    if (!(await stat(source)).isFile()) throw new Error(`envFiles entry is not a file: ${file}`)
-    await mkdir(dirname(destination), { recursive: true })
-    await copyFile(source, destination)
-    copied.push(destination)
-  }
-  return copied
-}
-
-/** Remove only generated files owned by this run before clean-only cleanup. */
-export async function removeWorktreeFiles(files: readonly string[]): Promise<void> {
-  for (const file of files) {
-    try {
-      await unlink(file)
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-  }
-}
-
-/** Verify a retained worktree still points at the run's branch and base. */
-export async function validateWorktree(subprocess: SubprocessRuntime, spec: WorktreeSpec, signal?: AbortSignal): Promise<void> {
-  const actualPath = await realpath(spec.path)
-  if (actualPath !== resolve(spec.path)) throw new Error(`worktree path resolves outside its recorded path: ${actualPath}`)
-  const branch = await checkedGit(subprocess, spec.path, ['branch', '--show-current'], signal)
-  if (branch !== spec.branch) throw new Error(`worktree branch is ${branch}, expected ${spec.branch}`)
-  const base = await runGit(subprocess, spec.path, ['merge-base', '--is-ancestor', spec.repository.baseRevision, 'HEAD'], signal)
-  if (base.exitCode !== 0) throw new Error(`worktree HEAD no longer descends from base revision ${spec.repository.baseRevision}`)
 }

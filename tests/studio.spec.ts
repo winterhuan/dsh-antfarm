@@ -1,58 +1,44 @@
-import { Context } from '@deepseek-ai/cordis'
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
-import { RunJournal } from '../src/persistence/journal.ts'
-import AntfarmStudioGateway from '../src/studio-host/index.ts'
-import type { RunStartData } from '../src/persistence/types.ts'
+/** Read-only Studio calls preserve the runtime's owner checks and service lifetime. */
+import { Context, Service } from '@deepseek-ai/cordis'
+import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { expect, it, onTestFinished } from 'vitest'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
+import Gateway from '../src/studio-host/index.ts'
+import type { AntfarmRunSummary, AntfarmStatus } from '../src/types.ts'
 
-const workflow = {
-  id: 'demo', name: 'Demo', version: 1, sourceDirectory: '/workflows/demo',
-  agents: [{ id: 'worker', name: 'Worker', role: 'coding' as const, skills: [], persona: 'Worker', instructions: 'Work' }],
-  steps: [{ id: 'execute', agent: 'worker', type: 'single' as const, input: '{{task}}', maxRetries: 1 }],
+const owner = SessionId('owner')
+const row: AntfarmRunSummary = { runId: 'af-demo', workflowId: 'smoke', status: 'completed', ownerSessionId: owner, workspace: '/repo/.worktrees/antfarm/af-demo', branch: 'antfarm/af-demo', updatedAt: 1, workspaceDisposition: 'retained' }
+const details: AntfarmStatus = { summary: row, context: {}, stories: [], childSessionIds: ['child'], uncertain: false }
+
+class Runtime extends Service {
+  constructor(ctx: Context) { super(ctx, 'antfarm') }
+  async list(sessionId: SessionId): Promise<AntfarmRunSummary[]> { return sessionId === owner ? [row] : [] }
+  async status(runId: string, sessionId: SessionId): Promise<AntfarmStatus> {
+    if (sessionId !== owner || runId !== row.runId) throw new Error('Run is not owned by this Session')
+    return details
+  }
 }
 
-function start(runId: string): RunStartData {
-  return { runId, ownerSessionId: 'owner', workflowId: 'demo', task: 'test', baseCwd: '/repo', baseRevision: 'abc123', baseStatus: '', workspace: '/repo/.worktrees/antfarm/run', branch: `antfarm/${runId}`, isolation: 'worktree', provider: 'spawn', resolvedWorkflowSnapshot: workflow }
-}
-
-describe('Antfarm Studio gateway', () => {
-  it('projects journals and edits only canonical workflow files', async () => {
-    const base = await mkdtemp(join(tmpdir(), 'antfarm-studio-'))
-    const journals = join(base, 'runs')
-    const workflows = join(base, 'workflows')
-    const directory = join(workflows, 'demo')
-    const shared = join(workflows, 'shared', 'worker')
-    await mkdir(directory, { recursive: true })
-    await mkdir(shared, { recursive: true })
-    const yaml = 'id: demo\nagents:\n  - id: worker\n    extends: shared/worker\n'
-    await writeFile(join(directory, 'workflow.yml'), yaml)
-    await writeFile(join(shared, 'IDENTITY.md'), 'Identity\n')
-    await writeFile(join(shared, 'SOUL.md'), 'Soul\n')
-    await writeFile(join(shared, 'AGENTS.md'), 'Work\n')
-    const journal = await RunJournal.create(journals, start('af-studio'))
-    await journal.append('run-end', { runId: 'af-studio', stopReason: 'completed' })
-
-    const ctx = new Context()
-    const fiber = await ctx.plugin(AntfarmStudioGateway, { journalRoot: journals, workflowDirs: [workflows], editable: true })
-    const gateway = ctx.get('antfarmStudio') as AntfarmStudioGateway
-    await expect(gateway.index()).resolves.toMatchObject({ workflows: ['demo'], runs: [{ runId: 'af-studio', status: 'completed' }] })
-    const initial = await gateway.workflow('demo') as { revision: string }
-    expect(initial).toMatchObject({ id: 'demo', yaml, agents: [{ id: 'worker', files: { 'IDENTITY.md': 'Identity\n', 'SOUL.md': 'Soul\n' }, paths: { 'IDENTITY.md': 'shared/worker/IDENTITY.md' } }] })
-    await expect(gateway.save('demo', 'shared/worker/SOUL.md', 'Updated soul\n')).resolves.toEqual({ saved: true })
-    await expect(readFile(join(shared, 'SOUL.md'), 'utf8')).resolves.toBe('Updated soul\n')
-    await expect(gateway.workflow('demo')).resolves.not.toMatchObject({ revision: initial.revision })
-    await expect(gateway.save('demo', '../outside', 'unsafe')).rejects.toThrow('not an editable workflow file')
-    await expect(gateway.save('demo', 'workflow.yml', 'invalid: [')).rejects.toThrow()
-    await expect(gateway.save('demo', 'workflow.yml', 'id: demo\nname: Missing fields\nversion: 1\n')).rejects.toThrow('workflow.agents')
-    await expect(readFile(join(directory, 'workflow.yml'), 'utf8')).resolves.toBe(yaml)
-    await fiber.dispose()
-    expect(ctx.get('antfarmStudio')).toBeUndefined()
-
-    const readOnly = new Context()
-    const readOnlyFiber = await readOnly.plugin(AntfarmStudioGateway, { journalRoot: journals, workflowDirs: [workflows], editable: false })
-    await expect((readOnly.get('antfarmStudio') as AntfarmStudioGateway).save('demo', 'workflow.yml', yaml)).rejects.toThrow('editing is disabled')
-    await readOnlyFiber.dispose()
-  })
+it('reads only session-owned runs and declares resource authorization for operations', async () => {
+  const ctx = new Context()
+  const runtime = ctx.plugin(Runtime)
+  onTestFinished(() => runtime.dispose())
+  await runtime
+  const fiber = ctx.plugin(Gateway)
+  onTestFinished(() => fiber.dispose())
+  await fiber
+  const gateway = ctx.get('antfarmStudio')
+  expect(gateway).toBeDefined()
+  if (gateway === undefined) throw new Error('missing Studio gateway')
+  const signal = new AbortController().signal
+  await expect(gateway.list(owner, signal)).resolves.toEqual([row])
+  await expect(gateway.list(SessionId('other'), signal)).resolves.toEqual([])
+  await expect(gateway.status(row.runId, owner, signal)).resolves.toEqual(details)
+  await expect(gateway.status(row.runId, SessionId('other'), signal)).rejects.toThrow('not owned')
+  const methods = remoteMethods(gateway)
+  expect(methods.map(method => method.method)).toContain('control')
+  expect(methods.map(method => method.method)).toContain('saveWorkflow')
+  expect(methods.every(method => method.resources !== undefined)).toBe(true)
+  await fiber.dispose()
+  expect(ctx.get('antfarmStudio')).toBeUndefined()
 })

@@ -1,127 +1,226 @@
 id: feature-dev
-name: Feature Development
-version: 1
-description: Plan, prepare, implement stories, verify each story, test, and review a feature.
+name: Feature development
+version: 2
+description: Plan, prepare, implement and verify stories, test, create a PR, and
+  publish an independent review.
 agents:
   - id: planner
     name: Feature planner
-    role: analysis
     timeoutSeconds: 900
+    preset: antfarm-analysis
+    instructions: agents/planner.md
   - id: setup
     name: Workspace setup
-    role: coding
     timeoutSeconds: 1200
+    preset: antfarm-coding
+    instructions: agents/setup.md
   - id: developer
     name: Story developer
-    role: coding
     timeoutSeconds: 1800
+    preset: antfarm-coding
+    instructions: agents/developer.md
   - id: verifier
     name: Story verifier
-    role: verification
     timeoutSeconds: 900
+    preset: antfarm-verification
+    instructions: agents/verifier.md
   - id: tester
     name: Test engineer
-    role: testing
     timeoutSeconds: 1200
+    preset: antfarm-verification
+    instructions: agents/tester.md
   - id: reviewer
     name: Final reviewer
-    role: verification
+    timeoutSeconds: 900
+    preset: antfarm-verification
+    instructions: agents/reviewer.md
+  - id: pr
+    name: PR delivery
+    preset: antfarm-pr
+    instructions: ../shared/pr.md
     timeoutSeconds: 900
 steps:
   - id: plan
     agent: planner
     type: single
-    input: |
+    input: >
       Analyze this task in the repository at {{workspace}}:
+
 
       {{task}}
 
-      Produce a bounded implementation plan as STORIES_JSON. Each story needs id, title, description, acceptanceCriteria, and maxRetries. Keep stories independently implementable and ordered. End with `STATUS: done`.
-    expects: "STATUS: done"
+
+      Return a small ordered set of independently implementable stories with
+      concrete acceptance criteria.
     maxRetries: 2
+    output: stories
   - id: setup
     agent: setup
     type: single
-    input: |
+    input: >
       Prepare {{workspace}} on {{branch}} for this task:
+
 
       {{task}}
 
-      Inspect repository instructions, dependencies, and the current test baseline. Do not implement feature stories. Summarize useful setup facts in ordinary prose and end with `STATUS: done`.
-    expects: "STATUS: done"
+
+      Inspect repository instructions, dependencies, and the current test
+      baseline. Summarize setup facts without implementing feature stories.
+
+
+      Prior results:
+
+      {{results}}
+
+
+      Return named values: test_cmd, build_cmd, baseline, frontend_paths,
+      environment.
     maxRetries: 2
+    output: result
   - id: implement
     agent: developer
     type: loop
     over: stories
     completion: all_done
     freshSession: true
-    input: |
+    input: >
       Implement only this story in {{workspace}} on {{branch}}:
+
 
       {{current_story}}
 
-      Feedback from its previous verification attempt:
+
+      Previous verification feedback:
+
       {{verify_feedback}}
 
-      Preserve unrelated work, run focused checks, report changed paths as `CHANGES: ...`, and end with `STATUS: done` when this story is ready for independent verification.
-    expects: "STATUS: done"
+
+      Preserve unrelated work, run focused checks, and summarize changed paths
+      and test results.
+
+
+      Commit this story on the supplied branch after its focused checks pass.
     maxRetries: 1
     verifyEach: true
     verifyStep: verify-story
-    repairInput: |
-      Repair the completed implementation after a later quality gate failed.
+    repairInput: >
+      Repair the implementation after a later quality check failed.
+
 
       Failure details:
+
       {{issues}}
 
+
       Completed story summary:
+
       {{stories_summary}}
 
-      Inspect the current diff, make the smallest complete repair, run focused checks, report `CHANGES: ...`, and end with `STATUS: done`.
+
+      Inspect the current diff, make the smallest complete repair, run focused
+      checks, and summarize changed paths and test results.
   - id: verify-story
     agent: verifier
     type: single
-    input: |
+    input: >
       Independently verify this story against the current repository state:
+
 
       {{current_story}}
 
+
       Claimed changes:
+
       {{changes}}
 
-      Inspect the diff and run focused checks. End with `STATUS: done` when every acceptance criterion holds. Otherwise end with `STATUS: retry` and provide actionable `ISSUES: ...`.
-    expects: "STATUS: done"
+
+      Inspect the diff and run focused checks. Report any unmet acceptance
+      criterion with actionable findings.
     maxRetries: 1
     onFail:
       maxRetries: 2
       onExhausted:
         escalateTo: human
+    output: result
+    requireChecks: true
+    requireVisuals: true
   - id: test
     agent: tester
     type: single
-    input: |
+    input: >
       Test the complete implementation for this task:
+
 
       {{task}}
 
-      Run the relevant repository checks, inspect failures, and end with `STATUS: done` only when the implementation passes. Otherwise end with `STATUS: retry` and provide `ISSUES: ...`.
-    expects: "STATUS: done"
+
+      Run the relevant repository checks and report failures with reproduction
+      details.
+
+
+      Check every accepted criterion against the complete candidate and cite
+      actual successful shell commands in checks. Use the recorded test_cmd and
+      build_cmd when relevant. Run browser E2E when the diff changes frontend
+      behavior.
     maxRetries: 1
     onFail:
       retryStep: implement
       maxRetries: 2
+      onExhausted:
+        escalateTo: human
+    output: result
+    requireChecks: true
+    requireVisuals: true
+  - id: pr
+    agent: pr
+    type: single
+    output: result
+    effect: pull-request
+    maxRetries: 0
+    input: >-
+      Deliver the checked candidate for {{task}} from {{workspace}} on
+      {{branch}}.
+
+      Accepted results: {{results}}
+
+      Inspect the existing remote branch and PR before any push or creation.
+      Update the existing PR for this branch when present. Do not merge or force
+      push. Return pr_url and pr_head in named values.
+    onFail:
+      maxRetries: 0
       onExhausted:
         escalateTo: human
   - id: review
     agent: reviewer
     type: single
-    input: |
-      Review the complete implementation for correctness, regressions, missing tests, and scope. End with `STATUS: done` when no blocking finding remains. Otherwise end with `STATUS: retry` and provide `ISSUES: ...`.
-    expects: "STATUS: done"
+    input: >
+      Review the complete implementation for this task:
+
+
+      {{task}}
+
+
+      Check correctness, regressions, missing tests, and scope. Report any
+      blocking finding with a concrete location and impact.
+
+
+      Inspect the current PR head and its latest reviews. If a distinct reviewer
+      already approved this head, verify that approval and return its pr_url and
+      review_id after your required checks pass. Otherwise compare gh api user
+      with the PR author; equal identities require an independent human approval
+      or a distinct authenticated reviewer before proceeding. Publish approval
+      only when all required checks and visual review pass. If changes are
+      required, return passed=false with actionable issues. Return pr_url and
+      review_id in named values.
     maxRetries: 1
     onFail:
       retryStep: implement
       maxRetries: 2
       onExhausted:
         escalateTo: human
+    output: result
+    requireChecks: true
+    effect: github-review
+    requireVisuals: true
+workspace: git
+allowEmptyPlan: false

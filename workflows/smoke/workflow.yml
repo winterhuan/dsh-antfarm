@@ -1,12 +1,13 @@
 id: smoke
-name: Antfarm Smoke
-version: 1
-description: One coding agent proves the DSH antfarm execution path.
+name: Antfarm smoke
+version: 2
+description: One coding agent completes a task through DSH.
 agents:
   - id: worker
     name: Smoke worker
-    role: coding
     timeoutSeconds: 900
+    preset: antfarm-coding
+    instructions: agents/worker.md
 steps:
   - id: execute
     agent: worker
@@ -17,6 +18,6 @@ steps:
       Complete this task:
       {{task}}
 
-      Inspect the repository, make the requested implementation, and run the narrow checks needed for your changes. End with a complete line exactly `STATUS: done` only when the task is complete.
-    expects: "STATUS: done"
+      Inspect the repository, make the requested implementation, and run the focused checks needed for your changes.
     maxRetries: 1
+    output: result

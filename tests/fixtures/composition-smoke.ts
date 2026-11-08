@@ -1,94 +1,112 @@
+import assert from 'node:assert/strict'
+import { readdir } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Loader, { Group } from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
-import SubagentRuntime, { type SubagentProvider } from '@deepseek-ai/dsh-subagent'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
+import type {} from '../../src/runtime/index.ts'
+import type {} from '../../src/studio-host/index.ts'
 
-class SmokeJobs extends Service {
-  constructor(ctx: Context) {
+/** Execution dependencies expose presence only; this fixture never starts a model or workflow. */
+class IdleDependency extends Service {
+  constructor(ctx: Context, name: string) {
+    super(ctx, name)
+  }
+}
+
+class IdleJobs extends Service {
+  private readonly state: { starts: number }
+  constructor(ctx: Context, state: { starts: number }) {
     super(ctx, 'jobs')
+    this.state = state
+  }
+  start(): never {
+    this.state.starts += 1
+    throw new Error('Loader composition fixture must not start a background job')
   }
 }
 
-class SmokeSubprocess extends Service {
-  constructor(ctx: Context) {
-    super(ctx, 'subprocess')
-  }
-}
-
-const mockProvider: SubagentProvider = {
-  name: 'mock',
-  capabilities: { outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
-  inheritsParentContext: false,
-  async start() {
-    throw new Error('composition smoke must not start a subagent')
-  },
-}
-
-const MockProvider = {
-  inject: ['subagents'],
-  apply(ctx: Context) {
-    ctx.subagents.registerProvider(mockProvider)
-  },
-}
-
+const journalRoot = process.argv[2]
+assert.ok(journalRoot, 'composition fixture requires its private journal directory')
+const omitJobs = process.argv[3] === '--omit-jobs'
 const root = new Context()
-const hostFibers = await Promise.all([
-  root.plugin(AgentRegistry),
-  root.plugin(CommandRuntime),
-  root.plugin(SmokeJobs),
-  root.plugin(SubagentRuntime),
-  root.plugin(SmokeSubprocess),
-  root.plugin(SystemPrompt),
-])
-hostFibers.push(await root.plugin(ToolRuntime))
-hostFibers.push(await root.plugin(MockProvider))
-
-const loaderFiber = await root.plugin(Loader, { baseUrl: import.meta.url })
-root.loader.builtins.group = Group
-const rows = [
-  ['runtime', import.meta.resolve('dsh-antfarm/runtime'), { journalRoot: process.cwd(), workflowDirs: [], subagentProvider: 'mock' }],
-  ['tool', import.meta.resolve('dsh-antfarm/tool')],
-  ['commands', import.meta.resolve('dsh-antfarm/commands')],
-  ['studio-host', import.meta.resolve('dsh-antfarm/studio-host'), { journalRoot: process.cwd(), workflowDirs: [] }],
-] as const
+const jobsState = { starts: 0 }
+const toolNames = ['antfarm_run', 'antfarm_list', 'antfarm_status', 'antfarm_resume', 'antfarm_cancel', 'antfarm_cleanup'].sort()
+// Commands need only a scope identity for registry lookup; this token is never driven as an Agent.
+const reader = { id: SessionId('composition-reader'), session: Session.create(SessionId('composition-reader')) } as Agent
 
 try {
-  const groupId = await root.loader.create({
-    name: 'cordis:group',
-    group: true,
-    config: rows.map(([id, name, config]) => ({ id, name, ...(config === undefined ? {} : { config }) })),
-  })
+  for (const name of ['agents', 'sessions', 'workingDirectory', 'agentPresets', 'subagents', 'subprocess']) {
+    await root.plugin(IdleDependency, name)
+  }
+  if (!omitJobs) await root.plugin(IdleJobs, jobsState)
+  await root.plugin(CommandRuntime)
+  await root.plugin(SystemPrompt, {})
+  await root.plugin(ToolRuntime)
+  await root.plugin(Loader, { baseUrl: import.meta.url })
+  root.loader.builtins.group = Group
+  const rows = [
+    { id: 'runtime', name: import.meta.resolve('dsh-antfarm/runtime'), config: { journalRoot, workflowDirs: [] } },
+    { id: 'tool', name: import.meta.resolve('dsh-antfarm/tool') },
+    { id: 'commands', name: import.meta.resolve('dsh-antfarm/commands') },
+    { id: 'studio-host', name: import.meta.resolve('dsh-antfarm/studio-host') },
+  ]
+  const groupId = await root.loader.create({ name: 'cordis:group', group: true, config: rows })
   await root.loader.await()
+  const mounted = rows.map(({ id }) => {
+    const fiber = root.loader.resolve(id).fiber
+    assert.equal(fiber?.state, 2, `${id} row is not active`)
+    assert.ok(fiber)
+    return fiber
+  })
 
-  if (root.get('antfarm') === undefined) throw new Error('runtime row did not provide antfarm')
-  if (root.get('antfarmStudio') === undefined) throw new Error('studio-host row did not provide antfarmStudio')
-  if (root.subagents.getProvider('mock') !== mockProvider) throw new Error('mock subagent provider is not registered')
+  const schemas = root.tools.schemas()
+  assert.deepEqual(schemas.map(schema => schema.name).sort(), toolNames)
+  for (const schema of schemas) {
+    const parameters = schema.parameters
+    assert.ok(parameters && typeof parameters === 'object' && 'type' in parameters)
+    assert.equal(parameters.type, 'object')
+    const required = 'required' in parameters ? parameters.required : []
+    assert.deepEqual(required, schema.name === 'antfarm_run' ? ['task'] : schema.name === 'antfarm_list' ? [] : ['run_id'])
+  }
+  const childId = SessionId('composition-child')
+  const child = { id: childId, session: Session.create(childId, [], { ...reader.session.header, id: childId, origin: 'subagent', parentSession: reader.id }) } as Agent
+  for (const agent of [reader, child]) {
+    const selection = await root.tools.resolve({ agent, modelSelection: { provider: 'fixture', model: 'fixture' }, signal: new AbortController().signal })
+    try {
+      assert.deepEqual(root.tools.schemas(agent, selection).map(schema => schema.name).sort(), agent === reader ? toolNames : [])
+      for (const name of toolNames) assert.equal(root.tools.executable(name, agent, selection) !== undefined, agent === reader)
+    } finally {
+      selection.dispose()
+    }
+  }
+  const commands = root.commands.list(reader).map(command => command.name)
+  assert.deepEqual(commands, ['antfarm'])
+  assert.equal(root.commands.find(reader, 'antfarm')?.definitionId, 'dsh-antfarm/antfarm')
 
-  const toolSchemas = root.tools.schemas()
-  const toolNames = toolSchemas.map(schema => schema.name)
-  for (const name of ['antfarm_run', 'antfarm_list', 'antfarm_status', 'antfarm_resume', 'antfarm_cancel', 'antfarm_cleanup']) {
-    if (!toolNames.includes(name)) throw new Error(`tool row did not register ${name}`)
-  }
-  const runParameters = toolSchemas.find(schema => schema.name === 'antfarm_run')?.parameters as { required?: string[] } | undefined
-  if (runParameters?.required?.includes('task') !== true || runParameters.required.includes('workflow_id')) {
-    throw new Error('antfarm_run must require task and leave workflow_id optional')
-  }
-  if (root.commands.find({} as never, 'antfarm') === undefined) throw new Error('commands row did not register antfarm')
+  const studioMethods = remoteMethods(root.antfarmStudio).map(marker => marker.method).sort()
+  assert.deepEqual(studioMethods, ['artifact', 'artifactContent', 'board', 'control', 'copyWorkflow', 'ensureExecution', 'events', 'health', 'healthHistory', 'list', 'page', 'removeWorkflow', 'saveWorkflow', 'setWorkflowEnabled', 'start', 'status', 'workflow', 'workflows'])
+  const before = await readdir(journalRoot)
+  const studioRuns = await root.antfarmStudio.list(reader.id, new AbortController().signal)
+  assert.deepEqual(studioRuns, [])
+  await assert.rejects(root.antfarmStudio.status('af-missing', reader.id, new AbortController().signal))
+  assert.deepEqual(await readdir(journalRoot), before)
+  assert.equal(jobsState.starts, 0)
 
-  for (const [id] of rows) {
-    const entry = root.loader.resolve(id)
-    if (entry.fiber?.state !== 2) throw new Error(`${id} row is not active (state ${String(entry.fiber?.state)})`)
+  root.loader.remove(groupId)
+  await Promise.all(mounted.map(fiber => fiber.dispose()))
+  const disposed = {
+    tools: root.tools.schemas().map(schema => schema.name),
+    commands: root.commands.list(reader).map(command => command.name),
+    runtime: root.get('antfarm') !== undefined,
+    studio: root.get('antfarmStudio') !== undefined,
   }
-
-  await root.loader.remove(groupId)
-  if (root.get('antfarm') !== undefined || root.get('antfarmStudio') !== undefined) {
-    throw new Error('composition services survived Loader disposal')
-  }
-  process.stdout.write('antfarm composition mounted and disposed\n')
+  assert.deepEqual(disposed, { tools: [], commands: [], runtime: false, studio: false })
+  process.stdout.write(JSON.stringify({ toolNames, commands, studioMethods, studioRuns, disposed }) + '\n')
 } finally {
-  await loaderFiber.dispose()
-  await Promise.all(hostFibers.reverse().map(fiber => fiber.dispose()))
+  await root.fiber.dispose()
 }

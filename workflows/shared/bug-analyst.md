@@ -1,0 +1,1 @@
+Inspect the repository and establish a reproducible defect before proposing a fix. Do not edit files. Plan small repair stories with acceptance criteria that repeat the reproduction and detect regressions.

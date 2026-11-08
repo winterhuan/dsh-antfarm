@@ -1,0 +1,61 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write README.md
+/:
+  en: 52e906a3603c87e8
+  zh: c9dca5d6a554e033
+/dsh-antfarm:
+  en: 38789ffe1536a2c6
+  zh: 7086d5cb91545fd2
+/dsh-antfarm/summary:
+  en: 1573b18f577c5862
+  zh: 6b0475e512553903
+/dsh-antfarm/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: c72b311df185caf1
+/dsh-antfarm/use-this-package:
+  en: f40f592a8dc8dd36
+  zh: 97f0f5ec840b34f9
+/dsh-antfarm/use-this-package/install-into-a-development-profile:
+  en: 5dd0a97d80dd867f
+  zh: 8c1d2f03ffcc62db
+/dsh-antfarm/use-this-package/start-and-inspect-a-run:
+  en: 068bc0a419e0170d
+  zh: 2e3fabfe002f45a0
+/dsh-antfarm/use-this-package/recover-and-preserve-output:
+  en: 4672c40ca1b7f758
+  zh: 6d8537303e328e5f
+/dsh-antfarm/use-this-package/configure-workflows-and-presets:
+  en: e15e276b2a38334a
+  zh: ee4ff6faba0483ec
+/dsh-antfarm/use-this-package/workflow-copies-and-effective-settings:
+  en: 81885a629819999e
+  zh: 6059e323e9970b55
+/dsh-antfarm/understand-the-implementation:
+  en: 8a0bb01b8758d694
+  zh: e4320ae73cd29453
+/dsh-antfarm/further-exploration:
+  en: eb32bbcf6f4706c2
+  zh: 77cc0d3f001c0c1d
+/dsh-antfarm/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/dsh-antfarm/model-experience/workflow-tools-and-child-instructions:
+  en: a147d6e743f82f7c
+  zh: e12ac38cae2ef6fd
+/dsh-antfarm/model-experience/workflow-tools-and-child-instructions/what-the-model-sees:
+  en: 7f2c4c2b57366763
+  zh: e584d2666f4c30b8
+/dsh-antfarm/model-experience/workflow-tools-and-child-instructions/token-effect:
+  en: 610764e1b978fe3b
+  zh: a2adbc0f730f88a7
+/dsh-antfarm/model-experience/workflow-tools-and-child-instructions/kv-cache-effect:
+  en: 88a4381028f20964
+  zh: 600a20133a17cb41
+/dsh-antfarm/known-limitations-and-deferred-work:
+  en: 3117ab4a4f50c074
+  zh: 8aa132e040ca619e
+/dsh-antfarm/known-limitations-and-deferred-work/dev-note:
+  en: 6807ab94f68ec9f8
+  zh: 79d49632803d246d

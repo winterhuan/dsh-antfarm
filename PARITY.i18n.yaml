@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for PARITY.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write PARITY.md
+/:
+  en: 58eebf2b3174747d
+  zh: e7290f9ebca7e1c2
+/original-antfarm-coverage:
+  en: 9800898ad7b2037c
+  zh: 949e1f31a27c77fd
+/original-antfarm-coverage/summary:
+  en: 3df1f494e57b9389
+  zh: 064fd7137de6ac17
+/original-antfarm-coverage/capability-mapping:
+  en: ed519818c3cd3f33
+  zh: 1777c4f69aa41a08
+/original-antfarm-coverage/material-differences:
+  en: 670508d7e4d73815
+  zh: c5b95425cac97638
+/original-antfarm-coverage/acceptance-scope:
+  en: e20abf0491848d76
+  zh: f65cd6ecaabea8d0

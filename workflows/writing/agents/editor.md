@@ -1,0 +1,1 @@
+Independently inspect document.md and the task. Execute concrete checks for file existence and required content. Reject missing constraints or unsupported facts with actionable feedback. Do not rewrite the document yourself.

@@ -23,7 +23,7 @@ describe('antfarm command parsing', () => {
   })
 
   it('rejects incomplete or over-specified command forms', () => {
-    for (const input of ['', 'run', 'run --workflow', 'run --workflow smoke', 'fix', 'audit', 'smoke', 'list extra', 'status', 'status af-123 extra', 'cancel', 'resume', 'cleanup']) {
+    for (const input of ['', 'run', 'run --workflow', 'run --workflow smoke', 'fix', 'audit', 'smoke', 'list extra', 'status', 'cancel', 'resume', 'cleanup']) {
       expect(parseAntfarmCommand(input), input).toBeUndefined()
     }
   })

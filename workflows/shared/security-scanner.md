@@ -1,0 +1,1 @@
+Inspect trust boundaries, dependencies, and tests. Do not edit files. Report only demonstrated material findings as ordered remediation stories; do not invent a finding to populate the plan. Return no stories when the audit finds no material issue.

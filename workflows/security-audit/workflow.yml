@@ -1,99 +1,201 @@
 id: security-audit
-name: Security Audit
-version: 1
-description: Identify material security findings, remediate each finding, verify fixes, and run a final audit.
+name: Security audit
+version: 2
+description: Scan, prioritize, prepare, remediate and verify findings, repeat
+  auditing, and deliver a remediation PR when needed.
 agents:
   - id: scanner
     name: Security scanner
-    role: scanning
-    extends: shared/security-scanner
     timeoutSeconds: 1800
+    preset: antfarm-scanning
+    instructions: ../shared/security-scanner.md
   - id: fixer
     name: Security fixer
-    role: coding
-    extends: shared/fixer
     timeoutSeconds: 1800
+    preset: antfarm-coding
+    instructions: ../shared/fixer.md
   - id: verifier
     name: Security verifier
-    role: verification
-    extends: shared/verifier
     timeoutSeconds: 1200
+    preset: antfarm-verification
+    instructions: ../shared/verifier.md
   - id: tester
     name: Security regression tester
-    role: testing
-    extends: shared/tester
     timeoutSeconds: 1200
+    preset: antfarm-verification
+    instructions: ../shared/tester.md
+  - id: prioritizer
+    name: Security prioritizer
+    preset: antfarm-analysis
+    instructions: ../shared/prioritizer.md
+    timeoutSeconds: 900
+  - id: setup
+    name: Workspace setup
+    preset: antfarm-coding
+    instructions: ../feature-dev/agents/setup.md
+    timeoutSeconds: 1200
+  - id: pr
+    name: PR delivery
+    preset: antfarm-pr
+    instructions: ../shared/pr.md
+    timeoutSeconds: 900
 steps:
   - id: audit
     agent: scanner
     type: single
-    input: |
+    input: >
       Audit {{workspace}} for material security issues relevant to this request:
+
 
       {{task}}
 
-      Inspect repository trust boundaries and dependencies. Produce STORIES_JSON containing only demonstrated, actionable findings, ordered by severity. End with STATUS: done.
-    expects: "STATUS: done"
+
+      Inspect trust boundaries and dependencies. Return only demonstrated,
+      actionable findings as stories ordered by severity. Return no stories when
+      the audit finds no material issue.
     maxRetries: 2
+    output: stories
+  - id: prioritize
+    agent: prioritizer
+    type: single
+    output: result
+    maxRetries: 2
+    input: >-
+      Validate the demonstrated security findings and severity ordering for
+      {{task}}.
+
+      {{stories_summary}}
+
+      Return prioritized_findings and remaining_risks; do not invent findings.
+  - id: setup
+    agent: setup
+    type: single
+    output: result
+    maxRetries: 2
+    input: >-
+      Prepare {{workspace}} for {{task}}. Read repository instructions,
+      dependencies and baseline.
+
+      {{results}}
+
+      Return test_cmd, build_cmd, environment and baseline without implementing
+      the task.
   - id: remediate
     agent: fixer
     type: loop
     over: stories
     completion: all_done
     freshSession: true
-    input: |
+    input: >
       Remediate only this security finding:
+
 
       {{current_story}}
 
+
       Previous verification feedback:
+
       {{verify_feedback}}
 
-      Preserve compatibility unless the finding requires a documented break, add regression coverage, report CHANGES, and end with STATUS: done.
-    expects: "STATUS: done"
+
+      Preserve compatibility unless the finding requires a documented break. Add
+      regression coverage and summarize changed paths and test results.
+
+
+      Commit the focused, tested repair on the supplied branch.
     maxRetries: 1
     verifyEach: true
     verifyStep: verify-remediation
-    repairInput: |
-      Repair completed remediations after the final audit failed.
+    repairInput: >
+      Repair the remediations after the final audit failed.
+
 
       {{issues}}
 
+
       Completed remediation summary:
+
       {{stories_summary}}
 
-      Make the smallest secure correction, report CHANGES, and end with STATUS: done.
+
+      Make the smallest secure correction, test bypasses and regressions, and
+      summarize changed paths and test results.
   - id: verify-remediation
     agent: verifier
     type: single
-    input: |
-      Verify this remediation against the original finding and current repository state:
+    input: >
+      Verify this remediation against the original finding and current
+      repository state:
+
 
       {{current_story}}
 
+
       Claimed changes:
+
       {{changes}}
 
-      Test bypasses and regressions. End with STATUS: done, or STATUS: retry and ISSUES.
-    expects: "STATUS: done"
+
+      Test bypasses and regressions. Report any remaining vulnerability or
+      missing coverage.
     maxRetries: 1
     onFail:
       maxRetries: 2
       onExhausted:
         escalateTo: human
+    output: result
+    requireChecks: true
+    requireVisuals: true
   - id: final-audit
     agent: tester
     type: single
-    input: |
+    input: >
       Run the final security and regression checks for:
+
 
       {{task}}
 
-      Confirm the completed remediations do not leave demonstrated bypasses. End with STATUS: done, or STATUS: retry and ISSUES.
-    expects: "STATUS: done"
+
+      Confirm the completed remediations do not leave demonstrated bypasses.
+      Report any remaining material finding.
+
+
+      Check every accepted criterion against the complete candidate and cite
+      actual successful shell commands in checks. Use the recorded test_cmd and
+      build_cmd when relevant. Run browser E2E when the diff changes frontend
+      behavior.
+
+
+      Repeat dependency/security auditing, test bypasses, and report fixed and
+      remaining findings. Even an empty finding set requires actual audit
+      evidence.
     maxRetries: 1
     onFail:
       retryStep: remediate
       maxRetries: 2
       onExhausted:
         escalateTo: human
+    output: result
+    requireChecks: true
+    requireVisuals: true
+  - id: pr
+    agent: pr
+    type: single
+    output: result
+    effect: pull-request
+    maxRetries: 0
+    input: >-
+      Deliver the checked candidate for {{task}} from {{workspace}} on
+      {{branch}}.
+
+      Accepted results: {{results}}
+
+      Inspect the existing remote branch and PR before any push or creation.
+      Update the existing PR for this branch when present. Do not merge or force
+      push. Return pr_url and pr_head in named values.
+    onFail:
+      maxRetries: 0
+      onExhausted:
+        escalateTo: human
+workspace: git
+allowEmptyPlan: true
