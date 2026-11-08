@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 摘要
 
-通过可复用专业工作流完成开发、缺陷修复、安全整改、研究和写作。编辑工作流副本，在原生 DSH 侧栏和工作流看板检查成果并控制运行。已接受进度跨重启保留，不确定效果需要人工核对。此开发检出面向 DSH `0.2.2-rc.1`，使用隔离 profile 安装。
+通过可复用专业工作流完成开发、缺陷修复、安全整改、研究和写作。编辑工作流副本，在原生 DSH 侧栏和工作流看板检查成果并控制运行。已接受进度跨重启保留，不确定效果需要人工核对。`0.2.0` 面向 DSH `0.2.2-rc.1`，随包提供预构建 Host 和 Web 入口。
 
 ## 目录
 
@@ -27,11 +27,13 @@ kind: "package-bundle"
 
 Antfarm 是可安装的 profile 层，提供工作流工具、`/antfarm` 命令、六个 Agent Preset、可控制运行的 Runs 标签页与工作流看板。需要 Node.js `^22.19 || >=24`、pnpm `11.7.0`、Git 与 DSH `0.2.2-rc.1`。
 
-使用包含原生 Agent Preset 组合的 Web 或 TUI profile。默认 headless profile 缺少 Agent Preset 注册器和 parent preset；自定义 headless profile 必须先提供两者，再安装本 bundle。
+使用包含原生 Agent Preset 组合的 Web profile。DSH `0.2.2-rc.1` 没有 TUI 应用入口。默认 headless profile 缺少 Agent Preset 注册器和 parent preset；自定义 headless profile 必须先提供两者，再安装本 bundle。
 
-### 安装到开发 profile
+### 安装与开发
 
-先构建此检出，再链接其根目录。使用独立 `DSH_HOME` 与 profile；打开 Web 前，将 `workspace-controller.config.documentsDirectory` 指向临时目录。远程当前 `main` 与已有 `0.1.0` 发布尚不包含此开发实现；远程安装需要新验收并固定提交的发布包。
+使用 [GitHub Release](https://github.com/winterhuan/dsh-antfarm/releases/tag/v0.2.0) 中的固定 Git 地址，将预构建发布包安装到 Web profile。Git 安装不运行包构建脚本。安装后重启 DSH 并硬刷新 Web；使用 `dsh plugin --profile web remove dsh-antfarm` 移除。
+
+开发时先构建此检出，再链接其根目录。使用独立 `DSH_HOME` 与 profile；打开 Web 前，将 `workspace-controller.config.documentsDirectory` 指向临时目录。
 
 ```sh
 pnpm install --frozen-lockfile
@@ -155,7 +157,7 @@ bundle 不增加请求前缀。Presets 提供指令；每个全新子会话接�
 - 原版 YAML/Markdown 工作流可导入；旧 Run 日志保持只读。不支持共享执行目录与自动环境复制。
 - 看板包含明确授权的根会话。归档 owner 需要先恢复所属会话才能继续执行。
 - 默认 `spawn` provider 必须支持全新本地 preset、结构化输出与 Agent options；继承父上下文的 provider 被拒绝。
-- GitHub 发布/审查、浏览器检查、真实模型质量与远程安装需要独立验收证据。本地确定性测试不能证明这些结果。
+- 代表性真实模型任务需要有界重试与人工核对。这些验收证明对应场景，不保证普遍质量或成本。验收配置的 `deepseek-flash` 没有图像输入；截图还经过人工／视觉检查。详见[验收范围](PARITY.zh.md#acceptance-scope)。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -163,6 +165,6 @@ bundle 不增加请求前缀。Presets 提供指令；每个全新子会话接�
 <details>
 <summary>维护者工作上下文 — 点击展开</summary>
 
-本文定义开发实现，不是发布或验收报告。发布前记录实际命令退出码与浏览器证据。安装入口要求当前构建与隔离 DSH 验收。
+本包随 Git 安装内容提供预构建产物。修改源码后重新构建，并在隔离 DSH profile 中验证安装包；[PARITY.zh.md](PARITY.zh.md) 记录发布验收证据与限制。
 
 </details>

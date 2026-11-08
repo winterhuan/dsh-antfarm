@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Run reusable specialist workflows for development, bug fixes, security remediation, research and writing. Edit workflow copies, inspect verified results, and control runs from the native DSH sidebar and workflow board. Accepted progress survives restarts; uncertain effects require your review. This development checkout targets DSH `0.2.2-rc.1` and is installed in an isolated profile.
+Run reusable specialist workflows for development, bug fixes, security remediation, research and writing. Edit workflow copies, inspect verified results, and control runs from the native DSH sidebar and workflow board. Accepted progress survives restarts; uncertain effects require your review. Version `0.2.0` targets DSH `0.2.2-rc.1` and ships prebuilt Host and Web entries.
 
 ## Table of Contents
 
@@ -27,11 +27,13 @@ Run reusable specialist workflows for development, bug fixes, security remediati
 
 Antfarm is an installable profile layer supplying workflow tools, the `/antfarm` command, six Agent Presets, a Runs tab with controls, and a workflow board. It requires Node.js `^22.19 || >=24`, pnpm `11.7.0`, Git, and DSH `0.2.2-rc.1`.
 
-Use a Web or TUI profile with native Agent Preset composition. Default headless profiles lack the Agent Preset registry and parent preset; a custom headless profile must provide both before installing this bundle.
+Use a Web profile with native Agent Preset composition. DSH `0.2.2-rc.1` provides no TUI application entry. Default headless profiles lack the Agent Preset registry and parent preset; a custom headless profile must provide both before installing this bundle.
 
-### Install into a development profile
+### Install and develop
 
-Build this checkout before linking its root directory. Use a separate `DSH_HOME` and profile; point `workspace-controller.config.documentsDirectory` at a temporary directory before opening Web. The current remote `main` and existing `0.1.0` release do not yet provide this development implementation; a remote installation needs a new verified, fixed release commit.
+Install the prebuilt release into your Web profile with the fixed Git address listed in the [GitHub Release](https://github.com/winterhuan/dsh-antfarm/releases/tag/v0.2.0). Git installation runs no package build script. Restart DSH and hard-refresh Web after installation. Remove it with `dsh plugin --profile web remove dsh-antfarm`.
+
+For development, build this checkout before linking its root directory. Use a separate `DSH_HOME` and profile; point `workspace-controller.config.documentsDirectory` at a temporary directory before opening Web.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -155,7 +157,7 @@ The bundle adds no request prefix. Presets supply instructions; each fresh child
 - Original YAML/Markdown workflows can be imported; older Run journals remain inspection-only. Shared execution directories and automatic environment copying are unsupported.
 - The board includes explicitly authorized root Sessions. Archived owners must be restored before execution can resume.
 - The default `spawn` provider must support fresh local presets, structured output, and Agent options; inherited-context providers are rejected.
-- GitHub publishing/review, browser checks, real-model quality and remote installation need independent acceptance evidence. Local deterministic tests do not establish those outcomes.
+- The representative real-model tasks required bounded retries and human reconciliation. They establish those scenarios, not a universal quality or cost guarantee. The configured `deepseek-flash` acceptance model has no image input; screenshots also received human/visual inspection. See [acceptance scope](PARITY.md#acceptance-scope).
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -163,6 +165,6 @@ The bundle adds no request prefix. Presets supply instructions; each fresh child
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-This is the development contract, not a release or acceptance report. Record actual command exits and browser evidence before release. The installation entry requires the current build and isolated DSH acceptance.
+The package ships prebuilt Git installation contents. Rebuild after source edits and verify the installed package in an isolated DSH profile; [PARITY.md](PARITY.md) records the release evidence and remaining limits.
 
 </details>
