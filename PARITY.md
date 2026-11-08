@@ -1,5 +1,5 @@
 ---
-description: "Original Antfarm capability mapping and the scope of local acceptance evidence."
+description: "Original Antfarm behavior mapping and release verification scope."
 ---
 
 # Original Antfarm coverage
@@ -8,43 +8,46 @@ English | [中文](PARITY.zh.md)
 
 ## Summary
 
-The comparison uses snarktank/antfarm 0.5.1 at `a442ad7dcb8cf8746175cc4a2e2dcafd501156cf`, with the source recorded in [the original fixtures](tests/fixtures/original-antfarm/SOURCE.txt). DSH replaces OpenClaw-specific scheduling and installation. Local tests verify execution rules; they do not establish real-model quality, GitHub delivery or remote installation.
+The baseline is snarktank/antfarm `0.5.1`, recorded in [original fixtures](tests/fixtures/original-antfarm/SOURCE.txt). The three original YAML workflows and persona resources are bundled unchanged. DSH supplies native execution, ownership and UI; SQLite retains the original business method. This page distinguishes mechanism checks, release installation and real-model quality evidence.
 
 ## Capability mapping
 
-| Original capability | DSH implementation and evidence |
+| Original capability | Native implementation and verification owner |
 |---|---|
-| Install/uninstall all or one workflow | Native plugin installation and project enablement; active dependencies refuse uninstall or are cancelled/drained with force. [Management tests](tests/workflow-management.spec.ts) |
-| Update, help, version and ant | Native DSH package update; commands preserve informational help, format/version identity and team explanation. Fixed Git installation, update and rollback are verified in isolated profiles. [Commands](src/commands/index.ts) |
-| Discovery and custom YAML/Markdown | Project/user/package precedence, revision-bound copies and confined original imports. [Loader and importer tests](tests/workflow-management.spec.ts) |
-| Run/list/status/search/stories | Stable numbers, task/id-prefix lookup, ambiguity rejection, paged lists and accepted story details. [Storage tests](tests/storage.spec.ts) |
-| Peek/claim/complete/fail worker protocol | Host readiness/capacity, exclusive persisted child attempts and native structured output replace polling workers. Results cannot advance another attempt or bypass checkpoint validation. [Journal tests](tests/journal.spec.ts) |
-| Ordered steps, story loops, per-story verification and retries | Fresh role attempts, independent verification, bounded earlier repair, accepted context and cumulative retry grants. [Driver tests](tests/orchestrator.spec.ts) |
-| Roles/personas/shared files/models/timeouts/skills | Six presets; original AGENTS/SOUL/IDENTITY files are combined into confined role instructions. Missing required skills refuse admission. [Original import](src/workflow/original.ts) |
-| Feature development, bug fixes and security remediation | Native official templates retain their different role sequences, PR delivery and feature review. [Workflow tests](tests/workflow.spec.ts) |
-| Custom research and writing | Owned file workspaces, immutable explicit inputs, source handoffs, independent checks and retained outputs. Native file production/check/download/cleanup has local DSH evidence. [File tests](tests/files.spec.ts) |
-| Autonomous cron/ensure-crons | Model-free Host queue/capacity and startup owner recovery; ensure-execution uses the same sole driver. [Capacity](tests/capacity.spec.ts) and [owner tests](tests/owner.spec.ts) |
-| Stop/cancel/resume failed runs | Original owner authority, awaited teardown, preserved accepted checkpoints and explicit retry grants. [Runtime tests](tests/runtime.spec.ts) |
-| Tested PR and GitHub review | Candidate-bound remote queries, write access and distinct approving review identity. Native role tools perform declared effects. A real feature task created its PR and received an official current-head approval by `continuous1024`. [Delivery tests](tests/delivery.spec.ts) |
-| Frontend detection, browser checks and screenshots | Changed frontend paths trigger required successful native browser evidence and retained screenshots; missing capability blocks. A real-model feature task passed browser interactions with retained, visually inspected screenshots. [Visual tests](tests/delivery.spec.ts) |
-| Global/per-run logs and events | Owner-scoped recent logs, per-run event pages and native transcripts; old rejected attempts remain inspectable. [Commands](src/commands/index.ts) |
-| Dashboard/stages/details/output/stories/refresh | Native global workflow board and Session sidebar; no separate dashboard daemon. Visible views discover new work, support controls and preserve stale-read content. [Client tests](tests/runs.client.spec.tsx) |
-| Medic install/uninstall/run/status/logs | Native runtime health settings, periodic/manual checks, history, overdue/inactive/uncertain diagnostics and ensure-execution for safe inactive work. No timeout can approve a result. [Health implementation](src/runtime/index.ts) |
-| Escalation/owner notifications | Durable native owner inbox notices with Session flush confirmation. Successful local DSH delivery is recorded. [Notification tests](tests/notifications.spec.ts) |
-| Workflow/Run webhooks and authentication | Explicit subscriptions, environment credential references, stable event ids, bounded waits and persisted uncertainty. An external service verified authentication, acceptance, rejection, timeout, uncertain delivery and event deduplication. [Notification tests](tests/notifications.spec.ts) |
+| Workflow and persona resources | Exact original YAML, AGENTS/SOUL/IDENTITY files; [resource tests](tests/workflow.spec.ts). |
+| Agent identities, roles and models | Stable workflow-qualified identity, conditional persona, shared standard composition, tool dispatch policy; [runtime tests](tests/runtime.spec.ts). |
+| SQLite persistence | Original business columns and atomic transitions; [database tests](tests/database.spec.ts). |
+| Peek/claim/complete/fail | Model-free ready checks, exact native claimant, original text results and failure budgets; [database](src/persistence/database.ts). |
+| Story loop and verify-each | Original STORIES_JSON, fresh attempts, story retries and preserved resume counts; [database tests](tests/database.spec.ts). |
+| Deadlines and abandonment | Native child deadlines/disposal feed separate single-step abandonment and per-story retries. |
+| Agent workspace, skills and progress | Stable directories, managed persona updates, optional native skill lookup, original progress archive; [adapter](src/runtime/agents.ts). |
+| Install/uninstall/import | Native bundle installation and revision-bound project/user overrides; [management tests](tests/workflow-management.spec.ts). |
+| Run/list/status/stories/logs | Original SQL summaries, Session ownership, number/prefix/task lookup, native transcripts. |
+| Stop/resume | Exact child cancellation, interrupted-owner recovery and late-result rejection; [runtime tests](tests/runtime.spec.ts). |
+| Frontend detection | Original production-file detector via native Git subprocesses; [progress adapter](src/runtime/progress.ts). |
+| Events/webhooks | Original event fields, best-effort authenticated HTTP, drained requests; [webhook tests](tests/notifications.spec.ts). |
+| Dashboard and medic | Native sidebar/authorized board, periodic diagnostics and safe ensure-execution; [client tests](tests/runs.client.spec.tsx). |
+| Historical DSH runs | Complete-prefix, owner-authorized read-only inspection without byte changes; [legacy tests](tests/legacy.spec.ts). |
 
 ## Material differences
 
-DSH replaces polling-model calls with Host scheduling, SQLite business rows with authoritative journal checkpoints plus a rebuildable SQLite index, and standalone dashboards with native panels. Native structured output validates declared expectations before acceptance. Every required final check belongs to a candidate; repairs cannot preserve an obsolete passing check. File workflows use explicit input snapshots and retained output digests. Worktrees preserve branches and refuse dirty cleanup. Original timed abandonment resets (failure at the fifth abandonment) are replaced by awaited native deadlines; crash-open attempts stop for owner reconciliation instead of timed replay.
+DSH Jobs and model-free Host polling replace OpenClaw cron/polling models; DSH panels replace a separate dashboard daemon. Agents share a native capability composition while preserving their individual personas. Native owner/attempt/host associations are extra SQL tables, and original business rows remain authoritative.
 
-Original commands whose purpose is to manage OpenClaw cron workers or the dashboard process have native equivalents, not identical spellings. Polling-only model/cron fields are retained as import metadata; they do not cause model polling. Original imports preserve declared expectations but do not automatically infer native `requireChecks`, visual or delivery enforcement: use the bundled native templates or explicitly add these fields to an imported copy.
+DSH requires reconciliation before replaying crash-open attempts, instead of inferring safety from an expired timer. Exact claimant identities reject stale results. Referenced verify-each steps can run while their loop is waiting for verification, and exhausted verification exposes a resumable failed step; these avoid original predecessor/recovery stalls. Role deadlines retain the original retry/abandonment budgets after confirmed teardown.
 
+Original personas still reference OpenClaw worker completion commands. Native task input directs agents to return the original final text and lets the Host record completion. Optional skills resolve through DSH providers. Webhook credentials use native environment references rather than URL fragments. Single-step failure directives remain metadata; the original worker completion path does not enforce them as a general retry graph.
+
+A worker’s successful reply is its reported result. The adapter does not add independent candidate-bound checks, GitHub review approval, immutable artifact snapshots, research/writing templates, additional retry grants or per-run worktree cleanup. Custom original-format workflows remain supported.
+
+<a id="acceptance-scope"></a>
 ## Acceptance scope
 
-Version `0.2.0` macOS and Linux checks cover Host/Client types, builds, packaging and 124 tests in 16 files. Native DSH `0.2.2-rc.1` Web verifies workflow editing, run controls, board navigation, artifact download and reading after cleanup; Headless verifies waiting for final business status and cold recovery. Fixed Git packages are verified in isolated profiles through installation, update, rollback, removal and reinstallation.
+Isolated Web acceptance completes feature-dev (7 attempts), bug-fix (6 attempts) and security-audit (7 attempts). SQLite confirms three completed runs and twenty distinct native Session IDs, each with real Bash execution. Browser inspection covers the board, step outputs and child navigation; model outcomes and PR URLs are deterministic fixture data. A further saved project override completes after restart, writes and archives native progress, detects a real frontend Git change, and omits native gateway/cron equivalents from child tools.
 
-A real `deepseek-flash` feature task completed planning, implementation, independent verification, testing, PR delivery and review. The counter fixture passed seven tests and the browser sequence `0 → 2 → Reset 0 → Increment 1 → Reset 0`; Host verified actual commands, screenshots, PR head and `continuous1024`'s official approval against the same candidate. A real research task completed independent file roles, input snapshots, report retention and cold Headless recovery. Bounded retries and human reconciliation remain recorded; an initial blocked outcome or CLI exit code zero is not business completion.
+The implementation checks cover macOS Host/Client types, clean builds, package composition, original SQL/identity/lifecycle behavior, client queries, historical preservation and webhook teardown. Native Web acceptance uses an isolated DSH `0.2.2-rc.1` profile and a deterministic model adapter; original step outcomes and native child/tool execution are checked separately from CLI exit.
 
-Native lifecycle acceptance confirms that owner unloading preserves safe queued work; startup restores it without a parent model turn, while open attempts remain interrupted until explicit reconciliation. Explicit cancellation awaits teardown and records cancellation. An external webhook service received authenticated requests; rejection and timeout retain failed/uncertain outcomes, confirmed events are deduplicated, and notification failures leave business state unchanged.
+Real-model usefulness, live GitHub delivery and Linux/Windows behavior are not established by these deterministic checks. Remote release installation requires separate package/configuration and browser evidence. Previous `0.2.0` release evidence describes that release’s different runtime and does not validate this implementation. DSH has no TUI entry on the pinned version; default Headless lacks the required preset composition.
 
-The original three workflows have structural and import tests; full real-model delivery uses `feature-dev`, and research verifies file workflows. These scenarios do not establish quality or cost for every task or model. `deepseek-flash` has no image input, so model DOM checks are supplemented by separate visual screenshot inspection. DSH currently supplies no TUI application entry; Web and fully configured Headless are supported and verified, and TUI is not counted as passing.
+## Dev Note
+
+Additional platforms and representative real-model tasks require their own recorded acceptance.

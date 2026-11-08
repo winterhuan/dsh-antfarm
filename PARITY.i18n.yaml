@@ -3,20 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write PARITY.md
 /:
-  en: 58eebf2b3174747d
-  zh: e7290f9ebca7e1c2
+  en: d70bb600e6e4399e
+  zh: 79e5f40de284ba53
 /original-antfarm-coverage:
   en: 9800898ad7b2037c
-  zh: 949e1f31a27c77fd
+  zh: a4844d8b1060bebf
 /original-antfarm-coverage/summary:
-  en: 84ea8dbe29eb8d0a
-  zh: 0ea8a485179494cc
+  en: c6f4c7d6f86d8b45
+  zh: 281caf9867b89fcd
 /original-antfarm-coverage/capability-mapping:
-  en: 7697e4befafd02b1
-  zh: 9d9256ac65d2f067
+  en: cd3fc0fa74ccf189
+  zh: a454a8dc6d7943cf
 /original-antfarm-coverage/material-differences:
-  en: 670508d7e4d73815
-  zh: 6b0de1547d48ff80
+  en: d346795da48b6ae0
+  zh: 2f7bcf73018d54ff
 /original-antfarm-coverage/acceptance-scope:
-  en: 25dea73892e10f5b
-  zh: 3aca1f9d4b6ce213
+  en: 88cfc81412a274f7
+  zh: 2976f5064b63fd14
+/original-antfarm-coverage/dev-note:
+  en: f7af92b2678c98ff
+  zh: cd2bd727e0c7fc35

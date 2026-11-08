@@ -8,7 +8,6 @@ import type { AntfarmOperations } from './operations.ts'
 import { WorkflowPanel } from './WorkflowPanel.tsx'
 import { RunControls } from './RunControls.tsx'
 import { HealthPanel } from './HealthPanel.tsx'
-import { ArtifactPanel } from './ArtifactPanel.tsx'
 import css from './RunsPanel.module.css'
 
 interface Props extends PropsLocale<'antfarmRuns'> {
@@ -102,7 +101,7 @@ export function RunsPanel({ state, workspace, openChild, owner, visible = true, 
               {state.detailLoading && detail === null ? <div className={css.pending}><StateDot state="ongoing" /></div> : detail !== null && <>
                 {detail.uncertain && <p className={css.notice}>{t('uncertain')}</p>}
                 {operations !== undefined && owner !== undefined && <RunControls key={row.runId} owner={owner} detail={detail} operations={operations} refresh={state.refresh} t={t} />}
-                {detail.steps !== undefined && <section className={css.stories}><h3>{t('steps')}</h3>{detail.steps.map(step => <div key={step.id} className={css.story}><span>{step.id}</span><span className={css.secondary}>{step.agent} · {t(step.accepted ? 'done' : 'pending')}</span></div>)}</section>}
+                {detail.steps !== undefined && <section className={css.stories}><h3>{t('steps')}</h3>{detail.steps.map(step => <div key={step.id} className={css.story}><span>{step.id}</span><span className={css.secondary}>{step.agent} · {t(step.status === 'waiting' ? 'pending' : step.status)}</span>{step.output !== null && <details><summary>{t('output')}</summary><pre className={css.output}>{step.output}</pre></details>}</div>)}</section>}
                 {detail.stories.length > 0 && <section className={css.stories}><h3>{t('stories')}</h3>{detail.stories.map(story => (
                   <div className={css.story} key={story.id}>
                     <span>{story.title}</span>
@@ -116,10 +115,6 @@ export function RunsPanel({ state, workspace, openChild, owner, visible = true, 
                   <Button key={id} size="sm" className={css.child} aria-label={t('openChild', { id })} onClick={() => { openChild(id) }}>{id}</Button>
                 ))}</section>}
                 {Object.keys(detail.context).length > 0 && <details><summary>{t('output')}</summary><dl>{Object.entries(detail.context).map(([key, value]) => <div key={key}><dt>{key}</dt><dd><pre className={css.output}>{value}</pre></dd></div>)}</dl></details>}
-                {Object.keys(detail.acceptedChecks ?? {}).length > 0 && <details><summary>{t('acceptedChecks')}</summary>{Object.entries(detail.acceptedChecks ?? {}).map(([step, proof]) => <div key={step}><p>{step}</p><code className={css.runId}>{proof.candidate}</code><p className={css.secondary}>{proof.callIds.join(', ')}</p></div>)}</details>}
-                {(detail.checkEvidence?.length ?? 0) > 0 && <details><summary>{t('executionEvidence')}</summary>{detail.checkEvidence?.map(check => <details key={check.callId}><summary>{check.stepId} · {t(check.passed ? 'checkEligible' : 'checkNotEligible')} · {check.command}</summary><p>{t('executionExit', { code: check.exitCode ?? '—' })}</p><code className={css.runId}>{check.candidate}</code><pre className={css.output}>{check.stdout}{check.stderr === '' ? '' : `\n${check.stderr}`}</pre><Button size="sm" onClick={() => { openChild(check.childSessionId) }}>{t('openChild', { id: check.childSessionId })}</Button></details>)}</details>}
-                {detail.executionPolicy !== undefined && <details><summary>{t('policy')}</summary><pre className={css.output}>{JSON.stringify(detail.executionPolicy, null, 2)}</pre></details>}
-                {(detail.artifacts?.length ?? 0) > 0 && operations !== undefined && owner !== undefined && <ArtifactPanel key={`${owner}:${row.runId}`} runId={row.runId} owner={owner} artifacts={detail.artifacts ?? []} operations={operations} t={t} />}
                 {operations !== undefined && <details><summary>{t('events')}</summary><Button size="sm" onClick={() => { void loadEvents(row.runId) }}>{t(events?.runId === row.runId ? 'moreEvents' : 'loadEvents')}</Button>
                   {events?.runId === row.runId && <ol className={css.events}>{events.values.map(event => <li key={event.seq}><span>#{event.seq} {event.type}</span><pre className={css.output}>{event.detail}</pre></li>)}</ol>}</details>}
               </>}

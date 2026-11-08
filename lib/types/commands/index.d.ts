@@ -16,9 +16,8 @@ export type ParsedAntfarmCommand = {
     readonly action: 'import';
     readonly directory: string;
     readonly sourceRoot: string;
-    readonly workspace?: 'files';
 } | {
-    readonly action: 'status' | 'cleanup';
+    readonly action: 'status';
     readonly runId: string;
 } | {
     readonly action: 'stories';
@@ -34,7 +33,6 @@ export type ParsedAntfarmCommand = {
     readonly action: 'resume';
     readonly runId: string;
     readonly guidance?: string;
-    readonly retryGrant?: number;
 };
 /**
  * Parse one human command without applying runtime defaults or side effects.

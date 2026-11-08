@@ -1,9 +1,9 @@
 /** Browser-safe Antfarm inspection projections. */
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
-import type { FileArtifact, FoldedStory, Checkpoint, CheckEvidence } from './persistence/types.ts'
+import type { FoldedStory } from './persistence/types.ts'
 
-/** Bounded inspection; live authority-bearing handles are never exposed. */
+/** Run inspection without live authority-bearing handles. */
 export interface AntfarmRunSummary {
   readonly runId: string
   readonly number?: number | undefined
@@ -14,7 +14,7 @@ export interface AntfarmRunSummary {
   readonly status: 'queued' | 'starting' | 'running' | 'interrupted' | 'blocked' | 'completed' | 'failed' | 'cancelled' | 'legacy' | 'corrupt'
   readonly workspace: string
   readonly branch: string
-  readonly currentStep?: string
+  readonly currentStep?: string | undefined
   readonly ownerSessionId: string
   readonly updatedAt: number
   readonly workspaceDisposition: 'present' | 'retained' | 'cleaned'
@@ -24,19 +24,14 @@ export interface AntfarmRunSummary {
   readonly reason?: string
 }
 
-/** Accepted checkpoint, stories, and native child addresses for one run. */
+/** Original business rows and native child addresses for one run. */
 export interface AntfarmStatus {
   readonly summary: AntfarmRunSummary
   readonly context: Readonly<Record<string, string>>
   readonly stories: readonly FoldedStory[]
   readonly childSessionIds: readonly string[]
   readonly uncertain: boolean
-  readonly steps?: readonly { readonly id: string; readonly agent: string; readonly accepted: boolean }[]
-  readonly acceptedChecks?: Checkpoint['acceptedChecks']
-  readonly checkEvidence?: readonly CheckEvidence[]
-  readonly artifacts?: readonly FileArtifact[]
-  readonly retryGrant?: number
-  readonly executionPolicy?: import('./persistence/types.ts').RunStartData['executionPolicy']
+  readonly steps?: readonly { readonly id: string; readonly agent: string; readonly status: 'pending' | 'waiting' | 'running' | 'done' | 'failed' | 'skipped'; readonly output: string | null; readonly retries: number }[]
 }
 
 /** A bounded diagnostic fact; output bodies are read separately. */
@@ -45,13 +40,6 @@ export interface AntfarmEventSummary {
   readonly time: number
   readonly type: string
   readonly detail: string
-}
-
-/** Verified retained output suitable for a browser preview or download. */
-export interface AntfarmArtifactContent {
-  readonly path: string
-  readonly mime: 'text/plain' | 'image/png' | 'image/jpeg' | 'application/octet-stream'
-  readonly base64: string
 }
 
 /** Health facts never infer successful acceptance from elapsed time or child completion. */
@@ -86,7 +74,6 @@ export interface AntfarmControlRequest {
   readonly sessionId: AntfarmSessionId
   readonly runId: string
   readonly revision: number
-  readonly action: 'resume' | 'cancel' | 'cleanup'
+  readonly action: 'resume' | 'cancel'
   readonly guidance?: string
-  readonly retryGrant?: number
 }

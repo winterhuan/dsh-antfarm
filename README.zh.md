@@ -1,5 +1,5 @@
 ---
-description: "可复用团队工作流、候选验收、工作流配置与原生 DSH 运行控制。"
+description: "原版 Antfarm 团队、人设身份、SQLite 进度与原生 DSH 运行控制。"
 kind: "package-bundle"
 ---
 
@@ -7,15 +7,15 @@ kind: "package-bundle"
 
 [English](README.md) | 中文
 
-## 摘要
+## 概述
 
-通过可复用专业工作流完成开发、缺陷修复、安全整改、研究和写作。编辑工作流副本，在原生 DSH 侧栏和工作流看板检查成果并控制运行。已接受进度跨重启保留，不确定效果需要人工核对。`0.2.0` 面向 DSH `0.2.2-rc.1`，随包提供预构建 Host 和 Web 入口。
+在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。通过侧栏或工作流看板查看步骤输出、故事与原生会话记录。版本 `0.3.0` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
 
 ## 目录
 
-- [使用本包](#use-this-package)
+- [使用此包](#use-this-package)
 - [理解实现](#understand-the-implementation)
-- [进一步阅读](#further-exploration)
+- [继续探索](#further-exploration)
 - [模型体验](#model-experience)
 - [已知限制与待办](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
@@ -23,17 +23,19 @@ kind: "package-bundle"
 -----
 
 <a id="use-this-package"></a>
-## 使用本包
-
-Antfarm 是可安装的 profile 层，提供工作流工具、`/antfarm` 命令、六个 Agent Preset、可控制运行的 Runs 标签页与工作流看板。需要 Node.js `^22.19 || >=24`、pnpm `11.7.0`、Git 与 DSH `0.2.2-rc.1`。
-
-使用包含原生 Agent Preset 组合的 Web profile。DSH `0.2.2-rc.1` 没有 TUI 应用入口。默认 headless profile 缺少 Agent Preset 注册器和 parent preset；自定义 headless profile 必须先提供两者，再安装本 bundle。
+## 使用此包
 
 ### 安装与开发
 
-使用 [GitHub Release](https://github.com/winterhuan/dsh-antfarm/releases/tag/v0.2.0) 中的固定 Git 地址，将预构建发布包安装到 Web profile。Git 安装不运行包构建脚本。安装后重启 DSH 并硬刷新 Web；使用 `dsh plugin --profile web remove dsh-antfarm` 移除。
+使用 Node.js `^22.19 || >=24`、pnpm `11.7.0` 和 DSH `0.2.2-rc.1` Web profile；宿主需提供原生 `standard` Agent Preset 与本地 `spawn` provider。此组合包增加五个工作流工具、`/antfarm` 命令、Session 侧栏和工作流看板，不注册 Antfarm 角色 preset。
 
-开发时先构建此检出，再链接其根目录。使用独立 `DSH_HOME` 与 profile；打开 Web 前，将 `workspace-controller.config.documentsDirectory` 指向临时目录。
+将不可变发布标签安装到 Web profile：
+
+```sh
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.0
+```
+
+源码开发使用：
 
 ```sh
 pnpm install --frozen-lockfile
@@ -42,67 +44,62 @@ pnpm run build
 pnpm test
 ```
 
-在隔离环境使用 `dsh plugin --profile antfarm-dev add link:/absolute/path/to/dsh-antfarm`。重新构建后重启开发服务并硬刷新 Web。使用 `dsh plugin --profile antfarm-dev remove dsh-antfarm` 移除该层。[cordis.patch.yml](cordis.patch.yml) 共同激活全部 Host 与 Client 入口。检出中的修改不会更新日常 profile。
+先构建，再将此检出链接到隔离 profile。打开 Web 前设置独立 `DSH_HOME`，并将 `workspace-controller.config.documentsDirectory` 指向临时目录。
 
-### 启动与查看运行
-
-编码工作流从 cwd 属于非裸 Git 仓库且仓库已有提交的会话发起。研究和写作使用 `workspace: files`，也能在 Git 之外运行。模型可向 `antfarm_run` 传入 `task`、可选 `workflow_id` 与 `background`；默认工作流为 `feature-dev`。运行和恢复工具默认等待最终接受、失败或阻塞状态；`background: true` 返回后台准入结果。斜杠指令与面板启动返回包含运行／任务标识和所属工作区的持久回执，执行继续进行。
-
-```text
-/antfarm run implement payment callbacks
-/antfarm smoke inspect the repository and report the available test commands
-/antfarm run --workflow feature-dev implement payment callbacks
-/antfarm list
-/antfarm status <runId-or-number>
-/antfarm cancel <runId> [reason...]
-/antfarm resume <runId> [--retry-grant 1..20] [guidance...]
-/antfarm cleanup <runId>
-/antfarm workflows
-/antfarm logs [runId-or-number]
-/antfarm stories <runId-or-number>
-/antfarm health
-/antfarm ensure-execution
-/antfarm help
+```sh
+dsh --profile antfarm-dev --from-default-profile web --dump-config > /dev/null
+dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh-antfarm
 ```
 
-简写 `/antfarm <task...>` 使用默认工作流。`fix`、`audit`、`smoke` 分别选择 `bug-fix`、`security-audit`、`smoke`。任务正文以保留命令词开头时使用 `run`。模型还可使用 `antfarm_list`、`antfarm_status`、`antfarm_cancel`、`antfarm_resume`、`antfarm_cleanup`；所有入口均校验发起会话的所有权。
+重新构建后重启开发服务并硬刷新 Web。使用 `dsh plugin --profile antfarm-dev remove dsh-antfarm` 移除此层。日常 profile 使用[仓库交接](https://github.com/winterhuan/dsh-creative/blob/develop/HANDOFF.md#5-在-dsh-中安装调试和移除)中记录的固定远程发布包；源码修改不会更新日常安装。
 
-从 Web 右侧栏打开 **Antfarm**，选择工作流、描述任务并检查运行。在全局 **Antfarm 工作流看板**按工作流和当前阶段查看已授权会话。列表每页加载五十次运行，展示稳定编号、任务、已接受 story 进度、输出、候选检查、保留文件、事件和原生子会话链接。可见视图持续刷新，包括空列表和已完成列表；隐藏视图停止轮询。查询失败保留已加载内容。
+### 启动与查看
 
-### 恢复与保留输出
+从具有项目 cwd 的根 Session 启动。编码团队按照原版 agent 指令使用 Git 与 GitHub CLI；请准备任务所需的仓库、依赖与凭据。所选工作流包含其声明的 PR 操作。
 
-Host 启动会恢复原始且未归档根会话的原生权限，无须父模型回合即可调度已保存的安全工作。未结算尝试保持中断。由所属会话恢复阻塞、中断或失败运行；失败运行需要显式追加重试预算。已接受检查点保留 done stories 和成功摘要；失败输出保留为反馈。恢复使用保存的工作流快照，因此 YAML 编辑只影响新运行。
+```text
+/antfarm run --workflow feature-dev implement payment callbacks
+/antfarm fix duplicate callbacks
+/antfarm audit authentication
+/antfarm workflows
+/antfarm list
+/antfarm status <runId-or-number>
+/antfarm stories <runId-or-number>
+/antfarm logs [runId-or-number]
+/antfarm cancel <runId> [reason...]
+/antfarm resume <runId> [guidance...]
+```
 
-未完成的尝试表示子会话效果不确定。查看其记录与保留 worktree 后，向 `resume` 提供明确核对指导。全新子会话可能重复最后一个已接受检查点之后的文件系统或外部效果。Antfarm 不保证恰好执行一次。GitHub 阶段在接受交付前查询 PR head 与已发表批准审查。恢复拒绝已完成/取消或已清理运行、并发写入者、仓库身份变化、改变/游离的分支，以及不再继承记录中基准提交的 HEAD。
+简写 `/antfarm <task...>` 默认使用 `feature-dev`。模型拥有 `antfarm_run`、`antfarm_list`、`antfarm_status`、`antfarm_resume` 和 `antfarm_cancel`。Run/resume 工具等待工作流结果，除非设置 `background: true`；命令和面板启动返回准入回执。所有读取与控制均检查原根 Session 的归属。
 
-每个 worktree 从捕获的仓库 `HEAD` 开始，不包含基础检出未提交、未跟踪和忽略文件。Antfarm 不复制环境文件。通过部署机制准备所需依赖与凭据；worktree 不是笔记本工作目录的副本。
+打开右侧栏的 **Antfarm**，选择工作流并查看步骤、输出、故事、事件和子 Session。全局工作流看板展示明确授权的 Session。列表每页五十条；可见视图刷新，隐藏视图停止轮询，刷新失败时保留已加载内容。
 
-完成和取消运行在配置启用时尝试清理。清理仅移除身份已校验且没有已跟踪修改、未跟踪文件或忽略文件的 worktree，并保留分支。失败与阻塞运行保留输出。清理前保存输出；阻塞/中断运行先取消再清理。身份变化与 Git 错误会保留目录并记录原因。
+### 恢复与保留文件
 
-### 配置工作流与 presets
+恢复按原版 Antfarm 重置失败步骤，保留已完成故事和已消耗的故事重试次数，不使用追加重试授权。中断的原生尝试需要先查看会话记录并提供恢复指导；宿主拒绝第二个活跃执行器和已取消尝试的迟到结果。已完成或已取消的运行不能恢复。
 
-发现依次查找 `<repo>/.antfarm/workflows`、按配置顺序的 `workflowDirs`，最后查找包内 [workflows](workflows/)。bundle 将 `$DSH_HOME/antfarm/workflows` 作为配置目录。使用 `version: 2` YAML 与相对 Markdown 指令；[smoke](workflows/smoke/workflow.yml) 是最小示例。
+稳定 agent 工作区位于 `$DSH_HOME/antfarm/workspaces/<workflow>/<baseDir>`。Agent 在任务中收到所属项目目录。工作区会保留，完成循环后的进度移入 developer 工作区的 `archive/<runId>/progress.txt`。受管理人设文件的本地修改会保留；若与工作流更新冲突，将明确报错，请先将修改保存到工作流定义再重试。
 
-每个 agent 选择部署提供的 `preset` 和一个 `instructions` 文件，可选 `model` 与 `timeoutSeconds`。bundle 安装 `antfarm-analysis`、`antfarm-coding`、`antfarm-verification`、`antfarm-testing`、`antfarm-scanning` 和 `antfarm-pr`。Analysis 不提供 shell 并关闭直接写工具；verification 关闭直接写工具但保留 shell 执行测试。能使用 shell 或 skill 的角色并非文件系统只读。worktree 之外的访问受 DSH 权限与 sandbox 管理。
+历史的逐 Run JSONL 数据保留在配置的 `journalRoot` 下。可确认归属的旧运行以只读记录展示可用完整前缀中的输出与原生 Session 链接。执行器不迁移、恢复或清理这些记录。共享 agent 工作区不提供逐 Run 清理操作。
 
-### 工作流副本与生效设置
+### 工作流配置
 
-在 **配置工作流**检查生效来源，编辑 YAML 或角色 Markdown，校验后保存项目或用户覆盖。项目定义优先于配置的用户目录和包内工作流。创建项目副本可选择新 id，移除覆盖可恢复继承。保存比较来源修订并拒绝竞争修改。未保存草稿保留至面板和会话导航之后；刷新浏览器前需要放弃或保存草稿。
+发现顺序为 `<project>/.antfarm/workflows`、配置的 `workflowDirs`、包内[工作流](workflows/)。自定义工作流使用原版 Antfarm YAML，通过 `workspace.files` 引用 `IDENTITY.md`、`SOUL.md` 和 `AGENTS.md`。各 agent 定义模型、角色、时限、工作区和可选原生 DSH skill 名称。声明的可用 skill 从所属 profile 加载；缺失的可选 skill 会告知 agent，与原版安装行为一致。
 
-通过 `/antfarm install <id|all>`和 `/antfarm uninstall <id|all> [--force]`调整项目启用状态。卸载会拒绝仍依赖它的活跃工作；`--force`取消并等待这些工作退出。资源与 Run 证据继续保留。通过 `/antfarm import <directory> <sourceRoot> [--files]`导入原版定义；明确选择的来源根目录必须包含全部共享角色文件。
+工作流编辑器保存绑定修订的项目或用户副本，拒绝逃逸路径或过期源码。正在运行的任务保留准入时的定义。安装或卸载控制影响新运行的可用性；移除活跃工作流会被拒绝，除非通过 force 取消并排空所属运行。
 
-DSH 原生插件设置编辑 `antfarm-runtime`配置。默认值和清理设置由新 Run 捕获；结构性配置变化重启服务并中断不确定工作。Host/owner 容量限制执行数量，不限制持久准入。
+原生插件设置提供运行时配置。结构配置变化会重启服务；不确定尝试保留为中断状态。
 
-| 设置 | 用途 |
+| 设置 | 含义 |
 |---|---|
-| `defaultWorkflowId`、`defaultStepTimeoutSeconds` | 默认工作流与尝试截止时间 |
-| `maxActiveRuns`、`maxActiveRunsPerOwner` | Host 与 owner 执行容量 |
-| `maxAttempts`、`maxStories`、`maxStoryRetries` | 有界工作量的部署上限 |
-| `healthEnabled`、`healthIntervalMs` | 不调用模型的健康检查及其间隔 |
-| `webhookUrl`、`webhookTokenEnv` | 显式生命周期订阅与原生环境凭据引用 |
-| `githubReviewerTokenEnv` | 可选的独立 GitHub 审查身份凭据引用 |
+| `journalRoot` | 历史日志根；原版 `antfarm.db`、事件与工作区使用其父目录。 |
+| `workflowDirs`、`defaultWorkflowId`、`subagentProvider` | 注册目录、默认团队与全新本地执行 provider。 |
+| `maxActiveRuns`、`maxActiveRunsPerOwner`、`dispatchIntervalMs` | 宿主或 owner 容量与无模型就绪轮询。 |
+| `healthEnabled`、`healthIntervalMs` | 定期诊断；`/antfarm health` 和 ensure-execution 也支持手动调用。 |
+| `gitTimeoutMs`、`subprocessGraceMs` | 原生前端 diff 时限与子进程终止宽限。 |
+| `webhookTimeoutMs`、`webhookTokenEnv` | 尽力投递的请求时限与可选环境凭据名称。 |
 
-文件工作流在准入时捕获声明的 UTF-8 `inputs`，在所属 `.antfarm/runs/<runId>`目录产出文件。输出按摘要保留快照，显式清理前后均可预览/下载，原输入文件不改变。GitHub 工作流阶段声明创建 PR 和批准审查。选择这些工作流即授权其声明的交付操作，合并需要另行授权。自审、缺少浏览器能力或未确认远程效果都会阻止验收。
+工作流 `notifications.url` 或显式 Run 订阅接收原版事件字段。URL 不含凭据、查询串或片段；认证使用原生环境引用。投递失败不改变 SQL 进度，宿主关闭会排空请求。
 
 -----
 
@@ -112,59 +109,57 @@ DSH 原生插件设置编辑 `antfarm-runtime`配置。默认值和清理设置�
 <details>
 <summary>实现与开发 — 点击展开</summary>
 
-[运行时](src/runtime/index.ts) 管理所属会话的操作准入与租约日志写入者。[执行器](src/runtime/orchestrator.ts) 使用 preset、cwd、指令与结构化输出执行串行 DSH 子会话。完整检查点一次接受规划 stories 与游标，或一个成功步骤/story 结果。必需检查引用同一候选上的实际原生 shell 执行，修复会使最终检查失效。原生 DSH 保存会话记录；Antfarm 保存业务进度。
+[加载器](src/workflow/loader.ts)保留原版工作流文档和人设资源。[数据库](src/persistence/database.ts)管理原版 `runs`、`steps`、`stories` 状态转换。附加 `dsh_*` 表记录 owner／Session 关联与原生调度排他性。`events.jsonl` 用于观察，不重建权威业务状态。
 
-日志默认位于 `$DSH_HOME/antfarm/runs/<runId>/events.jsonl`。[日志](src/persistence/journal.ts) 刷盘 version 3 记录；[fold](src/persistence/fold.ts) 重建已接受状态。可识别 owner 的不支持/损坏证据仅供查看，不能恢复或清理。Antfarm 不向原生 Session 日志追加私有事件。
-
-worktree 默认位于 `<repo>/.worktrees/antfarm/<runId>`，分支为 `antfarm/<runId>`。[工作区模块](src/workspace/git.ts) 将配置目录加入仓库本地 Git exclude，校验规范路径与 Git 身份，通过 DSH subprocess 执行 Git。它不会强制移除 worktree 或删除分支。
-
-提交前运行 `pnpm run typecheck`、`pnpm run build`、`pnpm test`。`pnpm run check:package` 还会构建、运行 `publint`、执行 npm pack dry run，并通过普通 Node ESM 导入 Host 入口。Client 使用 DSH 浏览器加载器与生成的 `dsh-antfarm/remote`，不是普通 Node 入口。真实 DSH 与模型/网络验收需要独立于单元测试完成。
+[Agent 适配器](src/runtime/agents.ts)在原生激活前将保留的 child ID 关联到稳定人设。它共用 `standard` 能力组合，同时在可见工具与实际派发中执行角色策略。DSH 管理模型循环、原生会话记录、父级权限与释放。[DESIGN](DESIGN.zh.md)解释恢复与归属；[PARITY](PARITY.zh.md)定义对照和验证范围。
 
 </details>
 
 -----
 
 <a id="further-exploration"></a>
-## 进一步阅读
+## 继续探索
 
-[DESIGN.zh.md](DESIGN.zh.md) 说明检查点、重试、取消与资源所有权。[cordis.patch.yml](cordis.patch.yml) 定义 presets 与服务。[package.json](package.json) 定义精确 DSH 版本与构建 exports。
+- [原版工作流 fixture](tests/fixtures/original-antfarm/SOURCE.txt)
+- [组合包装配](cordis.patch.yml)
+- [仓库集成](https://github.com/winterhuan/dsh-creative/blob/develop/docs/subsystems/antfarm.zh.md)
 
 -----
 
 <a id="model-experience"></a>
 ## 模型体验
 
-### 工作流工具与子代理指令
+### 工作流工具与子会话指令
 
-#### What the model sees
+#### 模型看到什么
 
-发起模型看到六个工作流控制工具，包括 `antfarm_run`。子会话无法访问这些工具或启动工作流。每个新子代理接收角色 preset、项目指令、解析后的步骤输入、已接受的前序结果，以及原生 `structured_output` 要求。Bash 结果提供执行引用，供结构化检查使用。`antfarm_status` 展示原因和最近最多三个已接受输出，每项限制为 2,000 字符。Runs UI 读取不进入模型上下文。
+根模型收到五个工作流控制工具。每个子会话收到所选原版人设文件、声明的 skill 指令、项目路径、已解析步骤输入与原版既有上下文，并返回所要求的 `KEY: value` 文本。子会话不能启动嵌套 Antfarm 团队。Run UI 查询不进入模型上下文。
 
-#### Token effect
+#### Token 影响
 
-角色指令和工具 schema 提供稳定的提示文本。步骤输入、story 反馈、已接受摘要和人工恢复指导会为每个子代理增加有界的运行上下文。
+每次全新尝试重复完整身份、人设与职责指令。既有输出、故事验收条件、进度与验证反馈增加任务特定输入。工具结果可能包含原版上下文和故事概要；较长原生会话记录单独查看。
 
 #### KV Cache 影响
 
-bundle 不增加请求前缀。Presets 提供指令；每个全新子会话接收步骤上下文与输出 schema。
+身份段位于共用的原生提示词之后。同一安装 agent 的身份内容保持稳定，步骤输入与运行特定进度会变化。全新 Session 不复用既有对话历史；provider 缓存复用取决于请求前缀是否匹配。
 
 ## 已知限制与待办
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 单次 Run 串行执行。Host 默认最多八次尝试，每个 owner 最多两次；已准入工作在持久队列等待。
-- worktree 隔离检出内容，不隔离 shell、网络、凭据或外部效果。
-- 原版 YAML/Markdown 工作流可导入；旧 Run 日志保持只读。不支持共享执行目录与自动环境复制。
-- 看板包含明确授权的根会话。归档 owner 需要先恢复所属会话才能继续执行。
-- 默认 `spawn` provider 必须支持全新本地 preset、结构化输出与 Agent options；继承父上下文的 provider 被拒绝。
-- 代表性真实模型任务需要有界重试与人工核对。这些验收证明对应场景，不保证普遍质量或成本。验收配置的 `deepseek-flash` 没有图像输入；截图还经过人工／视觉检查。详见[验收范围](PARITY.zh.md#acceptance-scope)。
+- 每个 Run 串行执行。每个稳定 agent 身份允许一个活跃尝试；多个运行共享 agent 时会等待。
+- 角色策略限制直接工具。Shell 与 skill 仍可能修改文件；部署权限保持权威。
+- 原版文本输出与 PR 链接是 worker 报告。宿主不独立批准 GitHub review，也不附加候选绑定的测试证据。
+- 显式恢复后，中断的效果可能重复。SQLite、全新 Session 与事件日志不保证外部操作恰好执行一次。
+- OpenClaw cron 安装、独立 dashboard 进程与轮询模型调用使用原生 DSH 等效机制。默认 Headless 缺少所需 preset 装配；DSH `0.2.2-rc.1` 没有 TUI 入口。
+- [PARITY](PARITY.zh.md#acceptance-scope)区分本地机制证据、真实模型质量、平台与远程发布验证。
 
 <a id="dev-note"></a>
 ### 开发备注
 
 <details>
-<summary>维护者工作上下文 — 点击展开</summary>
+<summary>维护者工作背景 — 点击展开</summary>
 
-本包随 Git 安装内容提供预构建产物。修改源码后重新构建，并在隔离 DSH profile 中验证安装包；[PARITY.zh.md](PARITY.zh.md) 记录发布验收证据与限制。
+Git 发布包包含预构建 Host／Web 入口和原版 persona 资源。[PARITY](PARITY.zh.md#acceptance-scope)记录验证范围。
 
 </details>

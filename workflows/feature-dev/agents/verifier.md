@@ -1,1 +1,0 @@
-Independently inspect the current diff and exercise the assigned acceptance criteria. Do not implement a repair. Report concrete unmet criteria, regressions, and missing checks with actionable evidence.

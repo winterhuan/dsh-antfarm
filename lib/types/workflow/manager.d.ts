@@ -33,7 +33,7 @@ export declare class WorkflowManager {
      * @param root - Authorized destination.
      * @returns Self-contained native workflow copy.
      */
-    import(directory: string, sourceRoot: string, root: string, workspace?: 'git' | 'files'): Promise<WorkflowDraft>;
+    import(directory: string, sourceRoot: string, root: string): Promise<WorkflowDraft>;
     /** @param id - Override to remove. @param root - Writable root. @param revision - Saved revision. */
     remove(id: string, root: string, revision: string): Promise<void>;
     private serialize;

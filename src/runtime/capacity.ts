@@ -1,4 +1,4 @@
-/** Fair bounded execution admission; the durable queue remains in Run journals. */
+/** Fair bounded execution admission; the durable queue remains in SQLite. */
 interface Waiting {
   readonly owner: string
   readonly signal: AbortSignal

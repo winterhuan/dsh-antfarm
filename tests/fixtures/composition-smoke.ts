@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { readdir } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
 import Loader, { Group } from '@deepseek-ai/cordis-plugin-loader'
@@ -35,7 +36,7 @@ assert.ok(journalRoot, 'composition fixture requires its private journal directo
 const omitJobs = process.argv[3] === '--omit-jobs'
 const root = new Context()
 const jobsState = { starts: 0 }
-const toolNames = ['antfarm_run', 'antfarm_list', 'antfarm_status', 'antfarm_resume', 'antfarm_cancel', 'antfarm_cleanup'].sort()
+const toolNames = ['antfarm_run', 'antfarm_list', 'antfarm_status', 'antfarm_resume', 'antfarm_cancel'].sort()
 // Commands need only a scope identity for registry lookup; this token is never driven as an Agent.
 const reader = { id: SessionId('composition-reader'), session: Session.create(SessionId('composition-reader')) } as Agent
 
@@ -50,7 +51,7 @@ try {
   await root.plugin(Loader, { baseUrl: import.meta.url })
   root.loader.builtins.group = Group
   const rows = [
-    { id: 'runtime', name: import.meta.resolve('dsh-antfarm/runtime'), config: { journalRoot, workflowDirs: [] } },
+    { id: 'runtime', name: import.meta.resolve('dsh-antfarm/runtime'), config: { journalRoot: join(journalRoot, 'runs'), workflowDirs: [] } },
     { id: 'tool', name: import.meta.resolve('dsh-antfarm/tool') },
     { id: 'commands', name: import.meta.resolve('dsh-antfarm/commands') },
     { id: 'studio-host', name: import.meta.resolve('dsh-antfarm/studio-host') },
@@ -89,7 +90,7 @@ try {
   assert.equal(root.commands.find(reader, 'antfarm')?.definitionId, 'dsh-antfarm/antfarm')
 
   const studioMethods = remoteMethods(root.antfarmStudio).map(marker => marker.method).sort()
-  assert.deepEqual(studioMethods, ['artifact', 'artifactContent', 'board', 'control', 'copyWorkflow', 'ensureExecution', 'events', 'health', 'healthHistory', 'list', 'page', 'removeWorkflow', 'saveWorkflow', 'setWorkflowEnabled', 'start', 'status', 'workflow', 'workflows'])
+  assert.deepEqual(studioMethods, ['board', 'control', 'copyWorkflow', 'ensureExecution', 'events', 'health', 'healthHistory', 'list', 'page', 'removeWorkflow', 'saveWorkflow', 'setWorkflowEnabled', 'start', 'status', 'workflow', 'workflows'])
   const before = await readdir(journalRoot)
   const studioRuns = await root.antfarmStudio.list(reader.id, new AbortController().signal)
   assert.deepEqual(studioRuns, [])

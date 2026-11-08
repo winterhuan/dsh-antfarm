@@ -3,59 +3,56 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write README.md
 /:
-  en: 52e906a3603c87e8
-  zh: c9dca5d6a554e033
+  en: d1166c053fdd12f5
+  zh: ff9e2c24dbcdfc3d
 /dsh-antfarm:
   en: 38789ffe1536a2c6
   zh: 7086d5cb91545fd2
 /dsh-antfarm/summary:
-  en: e8a92ae39b2c5e1a
-  zh: 856091163a5a6fbb
+  en: 52ae444935b819a0
+  zh: 1141e05f809a92d6
 /dsh-antfarm/table-of-contents:
   en: d152484eb41ac6b4
-  zh: c72b311df185caf1
+  zh: 0a57e495c2d0fdc4
 /dsh-antfarm/use-this-package:
-  en: 506d1f57bdaf166d
-  zh: 4a45e9d2177c6119
+  en: bbff250eba0f1b89
+  zh: b20a47f82d8ab6e0
 /dsh-antfarm/use-this-package/install-and-develop:
-  en: b2083d3be44e6ad0
-  zh: 5b0fc520823eecf8
-/dsh-antfarm/use-this-package/start-and-inspect-a-run:
-  en: 068bc0a419e0170d
-  zh: 2e3fabfe002f45a0
-/dsh-antfarm/use-this-package/recover-and-preserve-output:
-  en: 4672c40ca1b7f758
-  zh: 6d8537303e328e5f
-/dsh-antfarm/use-this-package/configure-workflows-and-presets:
-  en: e15e276b2a38334a
-  zh: ee4ff6faba0483ec
-/dsh-antfarm/use-this-package/workflow-copies-and-effective-settings:
-  en: 81885a629819999e
-  zh: 6059e323e9970b55
+  en: dc2f925a8d5c17cc
+  zh: b7cad79a3713f76b
+/dsh-antfarm/use-this-package/start-and-inspect:
+  en: 2dd263ae674efd14
+  zh: 6bfb3d70453ff73d
+/dsh-antfarm/use-this-package/recovery-and-retained-files:
+  en: b8615f247ada01a9
+  zh: cd18ab65b89ce9ed
+/dsh-antfarm/use-this-package/workflow-configuration:
+  en: 8819be329caeec9c
+  zh: 2454e34dea247dc0
 /dsh-antfarm/understand-the-implementation:
-  en: 8a0bb01b8758d694
-  zh: e4320ae73cd29453
+  en: e9c39e7d77f377a1
+  zh: 3835b39e726a8bfc
 /dsh-antfarm/further-exploration:
-  en: eb32bbcf6f4706c2
-  zh: 77cc0d3f001c0c1d
+  en: 218388ec21c2f5c5
+  zh: 35878f279a66dd36
 /dsh-antfarm/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
 /dsh-antfarm/model-experience/workflow-tools-and-child-instructions:
   en: a147d6e743f82f7c
-  zh: e12ac38cae2ef6fd
+  zh: 5d647d3e0b247875
 /dsh-antfarm/model-experience/workflow-tools-and-child-instructions/what-the-model-sees:
-  en: 7f2c4c2b57366763
-  zh: e584d2666f4c30b8
+  en: 98d2b26288e854cf
+  zh: 65086a53d2fdb4ea
 /dsh-antfarm/model-experience/workflow-tools-and-child-instructions/token-effect:
-  en: 610764e1b978fe3b
-  zh: a2adbc0f730f88a7
+  en: 2dd601ce96bf8a3f
+  zh: bcdc6aff6c10f483
 /dsh-antfarm/model-experience/workflow-tools-and-child-instructions/kv-cache-effect:
-  en: 88a4381028f20964
-  zh: 600a20133a17cb41
+  en: 51adc829afaa039d
+  zh: 6d9a9cb0296fda3c
 /dsh-antfarm/known-limitations-and-deferred-work:
-  en: f7fc5caa38bc60ea
-  zh: 0dd2893dff75e4aa
+  en: 09eb68659f5ec800
+  zh: 2acac83de19a73ad
 /dsh-antfarm/known-limitations-and-deferred-work/dev-note:
-  en: 6011a81ad11af354
-  zh: 016465b8a5da82c3
+  en: 7ac9c4e4d3c987ba
+  zh: 78785772c936a02b

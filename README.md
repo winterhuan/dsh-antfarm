@@ -1,5 +1,5 @@
 ---
-description: "Reusable team workflows, candidate verification, workflow configuration and native DSH run controls."
+description: "Original Antfarm teams, persona identities, SQLite progress and native DSH run controls."
 kind: "package-bundle"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Run reusable specialist workflows for development, bug fixes, security remediation, research and writing. Edit workflow copies, inspect verified results, and control runs from the native DSH sidebar and workflow board. Accepted progress survives restarts; uncertain effects require your review. Version `0.2.0` targets DSH `0.2.2-rc.1` and ships prebuilt Host and Web entries.
+Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Inspect step outputs, stories and native transcripts from the sidebar or workflow board. Version `0.3.0` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
 
 ## Table of Contents
 
@@ -25,15 +25,17 @@ Run reusable specialist workflows for development, bug fixes, security remediati
 <a id="use-this-package"></a>
 ## Use this package
 
-Antfarm is an installable profile layer supplying workflow tools, the `/antfarm` command, six Agent Presets, a Runs tab with controls, and a workflow board. It requires Node.js `^22.19 || >=24`, pnpm `11.7.0`, Git, and DSH `0.2.2-rc.1`.
-
-Use a Web profile with native Agent Preset composition. DSH `0.2.2-rc.1` provides no TUI application entry. Default headless profiles lack the Agent Preset registry and parent preset; a custom headless profile must provide both before installing this bundle.
-
 ### Install and develop
 
-Install the prebuilt release into your Web profile with the fixed Git address listed in the [GitHub Release](https://github.com/winterhuan/dsh-antfarm/releases/tag/v0.2.0). Git installation runs no package build script. Restart DSH and hard-refresh Web after installation. Remove it with `dsh plugin --profile web remove dsh-antfarm`.
+Use Node.js `^22.19 || >=24`, pnpm `11.7.0` and a DSH `0.2.2-rc.1` Web profile providing the native `standard` Agent Preset and local `spawn` provider. The bundle adds five workflow tools, the `/antfarm` command, the Session sidebar and the workflow board. It registers no Antfarm role presets.
 
-For development, build this checkout before linking its root directory. Use a separate `DSH_HOME` and profile; point `workspace-controller.config.documentsDirectory` at a temporary directory before opening Web.
+Install the immutable release tag into a Web profile:
+
+```sh
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.0
+```
+
+For source development:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -42,67 +44,62 @@ pnpm run build
 pnpm test
 ```
 
-In the isolated environment, use `dsh plugin --profile antfarm-dev add link:/absolute/path/to/dsh-antfarm`. Restart that development service and hard-refresh Web after rebuilding. Remove the layer with `dsh plugin --profile antfarm-dev remove dsh-antfarm`. [cordis.patch.yml](cordis.patch.yml) activates all Host and Client entries together. Checkout edits do not update daily profiles.
+Build before linking this checkout into an isolated profile. Set an independent `DSH_HOME` and point `workspace-controller.config.documentsDirectory` at a temporary directory before opening Web.
 
-### Start and inspect a run
-
-For coding workflows, start from a Session whose cwd belongs to a non-bare Git repository with a commit. Research and writing use `workspace: files` and also work outside Git. The model can call `antfarm_run` with `task`, optional `workflow_id` and `background`; the default workflow is `feature-dev`. Run and resume tools wait for the final accepted, failed or blocked status unless `background: true` is supplied. Slash commands and panel launches return a durable receipt with run/job identifiers and the owned workspace while execution continues.
-
-```text
-/antfarm run implement payment callbacks
-/antfarm smoke inspect the repository and report the available test commands
-/antfarm run --workflow feature-dev implement payment callbacks
-/antfarm list
-/antfarm status <runId-or-number>
-/antfarm cancel <runId> [reason...]
-/antfarm resume <runId> [--retry-grant 1..20] [guidance...]
-/antfarm cleanup <runId>
-/antfarm workflows
-/antfarm logs [runId-or-number]
-/antfarm stories <runId-or-number>
-/antfarm health
-/antfarm ensure-execution
-/antfarm help
+```sh
+dsh --profile antfarm-dev --from-default-profile web --dump-config > /dev/null
+dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh-antfarm
 ```
 
-The short form `/antfarm <task...>` uses the default workflow. `fix`, `audit`, and `smoke` select `bug-fix`, `security-audit`, and `smoke`. Use `run` when task text begins with a reserved command word. The model also has `antfarm_list`, `antfarm_status`, `antfarm_cancel`, `antfarm_resume`, and `antfarm_cleanup`; all enforce the initiating Session's ownership.
+Restart the development service and hard-refresh Web after rebuilding. Remove the layer with `dsh plugin --profile antfarm-dev remove dsh-antfarm`. Daily profiles use the fixed remote release described in the [repository handoff](https://github.com/winterhuan/dsh-creative/blob/develop/HANDOFF.md#5-在-dsh-中安装调试和移除); source edits do not update them.
 
-Open **Antfarm** from the Web right sidebar to choose a workflow, describe a task, and inspect its runs. Use the global **Antfarm workflow board** to group authorized Sessions by workflow and current stage. Lists load fifty runs per page and show stable numbers, tasks, accepted story progress, outputs, candidate checks, retained files, events and native child-session links. Visible views refresh, including empty and completed lists; hidden views stop polling. Failed reads retain loaded content.
+### Start and inspect
 
-### Recover and preserve output
+Start from a root Session with a project cwd. Coding teams use Git and GitHub CLI through their original agent instructions; prepare the repository, dependencies and credentials appropriate to the task. The selected workflow authorizes its declared PR actions.
 
-Host startup restores the native authority of the original, unarchived root Session and dispatches saved safe work without a parent model turn. An open attempt stays interrupted. Resume blocked, interrupted or failed work from its owner; failed runs require an explicit additional retry grant. Accepted checkpoints preserve done stories and successful summaries; failed output remains feedback. Recovery uses the saved workflow snapshot, so YAML edits affect new runs.
+```text
+/antfarm run --workflow feature-dev implement payment callbacks
+/antfarm fix duplicate callbacks
+/antfarm audit authentication
+/antfarm workflows
+/antfarm list
+/antfarm status <runId-or-number>
+/antfarm stories <runId-or-number>
+/antfarm logs [runId-or-number]
+/antfarm cancel <runId> [reason...]
+/antfarm resume <runId> [guidance...]
+```
 
-An unfinished attempt means that child effects are uncertain. Inspect its transcript and retained worktree, then supply explicit reconciliation guidance to `resume`. A fresh child can repeat filesystem or external effects after the last accepted checkpoint. Antfarm does not provide exactly-once execution. GitHub phases query the PR head and approving review before accepting delivery. Resume rejects completed/cancelled or cleaned runs, concurrent writers, changed repository identity, changed/detached branches, and HEADs that no longer descend from the recorded base.
+The short form `/antfarm <task...>` uses `feature-dev` by default. The model has `antfarm_run`, `antfarm_list`, `antfarm_status`, `antfarm_resume` and `antfarm_cancel`. Run/resume tools wait for the workflow outcome unless `background: true`; commands and panel starts return an admission receipt. All reads and controls check the original root Session owner.
 
-Each worktree starts from captured repository `HEAD`, excluding base checkout uncommitted, untracked, and ignored files. Antfarm copies no environment files. Prepare required dependencies and credentials through deployment mechanisms; the worktree is not a copy of the laptop working directory.
+Open **Antfarm** in the right sidebar to select a workflow and inspect its steps, outputs, stories, events and child Sessions. The global workflow board shows explicitly authorized Sessions. Lists use fifty-row pages; visible views refresh, hidden views stop polling, and failed refreshes retain loaded content.
 
-Completed and cancelled runs attempt cleanup when enabled. Cleanup removes only an identity-validated worktree with no tracked modifications, untracked files, or ignored files, and preserves its branch. Failed and blocked runs retain output. Save output before cleanup; cancel blocked/interrupted runs before cleaning. Identity changes and Git errors retain the directory with a reason.
+### Recovery and retained files
 
-### Configure workflows and presets
+Resume resets the failed step while retaining completed stories and consumed story retry counts, following original Antfarm. There is no additional retry grant. An interrupted native attempt requires transcript inspection and recovery guidance; the host refuses a second live executor and late results from cancelled attempts. Completed or cancelled runs cannot resume.
 
-Discovery checks `<repo>/.antfarm/workflows`, configured `workflowDirs` in order, then package [workflows](workflows/). The bundle supplies `$DSH_HOME/antfarm/workflows` as a configured directory. Use `version: 2` YAML and relative Markdown instructions; [smoke](workflows/smoke/workflow.yml) is the smallest example.
+Stable agent workspaces live under `$DSH_HOME/antfarm/workspaces/<workflow>/<baseDir>`. Agents receive the owning project directory in their task. Workspaces are retained, and completed loop progress moves into the developer workspace’s `archive/<runId>/progress.txt`. Local edits to managed persona files are preserved and reported when a workflow update conflicts with them; save those edits in the workflow definition before retrying.
 
-Each agent selects a deployment-owned `preset` and one `instructions` file, with optional `model` and `timeoutSeconds`. The bundle installs `antfarm-analysis`, `antfarm-coding`, `antfarm-verification`, `antfarm-testing`, `antfarm-scanning` and `antfarm-pr`. Analysis omits shell and disables direct write tools; verification disables direct write tools but keeps shell for tests. A role with shell or skill access is not filesystem read-only. DSH permissions and sandbox govern access beyond the worktree.
+Historical per-run JSONL data stays under the configured `journalRoot`. Attributable old runs appear as inspection-only records, with available complete-prefix outputs and native Session links. The executor does not migrate, resume or clean them. Shared agent workspaces have no Run cleanup operation.
 
-### Workflow copies and effective settings
+### Workflow configuration
 
-In **Configure workflow**, inspect the effective source, edit YAML or role Markdown, and validate/save a project or user override. Project definitions take precedence over configured user roots and packaged workflows. Create a project copy to choose another id; remove an override to restore inheritance. Saves compare the source revision and refuse competing changes. Dirty drafts survive panel and Session navigation; reloading the browser requires discarding or saving them first.
+Discovery checks `<project>/.antfarm/workflows`, configured `workflowDirs`, then bundled [workflows](workflows/). Custom workflows use original Antfarm YAML and `workspace.files` references for `IDENTITY.md`, `SOUL.md` and `AGENTS.md`. Each agent defines its model, role, deadline, workspace and optional native DSH skill names. Available declared skills load from the owning profile; missing optional skills are disclosed to the agent, matching original provisioning.
 
-Use `/antfarm install <id|all>` and `/antfarm uninstall <id|all> [--force]` to change project enablement. Uninstall refuses active dependent work; `--force` cancels and drains it. Resources and Run evidence remain available. Import original definitions with `/antfarm import <directory> <sourceRoot> [--files]`; the explicitly selected root must contain all shared role files.
+The workflow editor saves revision-bound project/user copies and refuses escaped paths or stale source. Running work retains its admitted definition. Install/uninstall controls change availability for new runs; removing an active workflow refuses the operation unless its owned runs are cancelled and drained with force.
 
-DSH's native Plugins settings edit the `antfarm-runtime` configuration. Defaults and cleanup settings are captured for each new Run; structural configuration changes restart the service and interrupt uncertain work. Host/owner capacity limits govern execution, not durable admission.
+Native Plugins settings expose runtime configuration. Structural changes restart the service; uncertain attempts remain interrupted.
 
-| Setting | Purpose |
+| Setting | Meaning |
 |---|---|
-| `defaultWorkflowId`, `defaultStepTimeoutSeconds` | Default workflow and attempt deadline |
-| `maxActiveRuns`, `maxActiveRunsPerOwner` | Host and owner execution capacity |
-| `maxAttempts`, `maxStories`, `maxStoryRetries` | Deployment ceilings for bounded work |
-| `healthEnabled`, `healthIntervalMs` | Model-free health checks and their interval |
-| `webhookUrl`, `webhookTokenEnv` | Explicit lifecycle subscription and native environment credential reference |
-| `githubReviewerTokenEnv` | Optional distinct GitHub reviewer credential reference |
+| `journalRoot` | Historical journal root; original `antfarm.db`, events and workspaces use its parent directory. |
+| `workflowDirs`, `defaultWorkflowId`, `subagentProvider` | Registry roots, default team and fresh local execution provider. |
+| `maxActiveRuns`, `maxActiveRunsPerOwner`, `dispatchIntervalMs` | Host/owner capacity and model-free readiness polling. |
+| `healthEnabled`, `healthIntervalMs` | Periodic diagnostics; `/antfarm health` and ensure-execution also work manually. |
+| `gitTimeoutMs`, `subprocessGraceMs` | Native frontend-diff deadline and subprocess termination grace. |
+| `webhookTimeoutMs`, `webhookTokenEnv` | Best-effort request deadline and optional environment credential name. |
 
-File workflows capture declared UTF-8 `inputs` at admission and produce files in an owned `.antfarm/runs/<runId>` directory. Output snapshots are retained by digest. Preview/download them before or after explicit cleanup; original input files are not changed. GitHub workflow stages declare PR creation and approval. Selecting those workflows authorizes their declared delivery operations; merging remains separate. A self-review, missing browser capability, or unconfirmed remote effect blocks acceptance.
+Workflow `notifications.url` or an explicit Run subscription receives original event fields. URLs omit credentials, query strings and fragments; authentication uses the native environment reference. Delivery failure does not change SQL progress, and host shutdown drains requests.
 
 -----
 
@@ -112,13 +109,9 @@ File workflows capture declared UTF-8 `inputs` at admission and produce files in
 <details>
 <summary>Implementation and development — click to expand</summary>
 
-[Runtime](src/runtime/index.ts) admits owner-scoped operations and leased journal writers. The [driver](src/runtime/orchestrator.ts) executes serial DSH child activations with presets, cwd, instructions, and structured output. Complete checkpoints accept planner stories and cursor together, or one successful step/story result. Required checks cite actual native shell execution on the same candidate; repairs invalidate final checks. Native DSH stores transcripts; Antfarm stores business progress.
+The [loader](src/workflow/loader.ts) retains the original workflow documents and persona resources. The [database](src/persistence/database.ts) owns original `runs`, `steps` and `stories` transitions. Additional `dsh_*` tables record owner/Session associations and exclusive native dispatch. `events.jsonl` provides observation and never reconstructs authoritative business state.
 
-Journals default to `$DSH_HOME/antfarm/runs/<runId>/events.jsonl`. The [journal](src/persistence/journal.ts) flushes version 3 records; [fold](src/persistence/fold.ts) reconstructs accepted state. Unsupported/corrupt evidence with an identifiable owner is inspection-only and cannot resume or clean. Antfarm appends no private events to native Session journals.
-
-Worktrees default to `<repo>/.worktrees/antfarm/<runId>` on `antfarm/<runId>`. The [workspace owner](src/workspace/git.ts) adds the configured directory to repository-local Git exclude, verifies canonical paths and Git identity, and uses DSH subprocesses for Git. It never forces removal or deletes branches.
-
-Before committing, run `pnpm run typecheck`, `pnpm run build`, and `pnpm test`. `pnpm run check:package` also builds, runs `publint`, performs an npm pack dry run, and imports Host entries in plain Node ESM. Client uses DSH's browser loader and generated `dsh-antfarm/remote`; it is not a plain Node entry. Real DSH and model/network acceptance remain separate from unit tests.
+The [agent adapter](src/runtime/agents.ts) associates a reserved child ID with a stable persona before native activation. It uses the shared `standard` composition and enforces role policy in visible tools and actual dispatch. DSH owns the model loop, native transcript, parent authority and teardown. [DESIGN](DESIGN.md) explains recovery and ownership; [PARITY](PARITY.md) defines the comparison and verification limits.
 
 </details>
 
@@ -127,7 +120,9 @@ Before committing, run `pnpm run typecheck`, `pnpm run build`, and `pnpm test`. 
 <a id="further-exploration"></a>
 ## Further Exploration
 
-[DESIGN.md](DESIGN.md) explains checkpoints, retries, cancellation, and resource ownership. [cordis.patch.yml](cordis.patch.yml) defines presets and services. [package.json](package.json) defines exact DSH versions and build exports.
+- [Original workflow fixtures](tests/fixtures/original-antfarm/SOURCE.txt)
+- [Bundle composition](cordis.patch.yml)
+- [Repository integration](https://github.com/winterhuan/dsh-creative/blob/develop/docs/subsystems/antfarm.md)
 
 -----
 
@@ -138,26 +133,26 @@ Before committing, run `pnpm run typecheck`, `pnpm run build`, and `pnpm test`. 
 
 #### What the model sees
 
-The initiating model receives six workflow control tools, including `antfarm_run`. Child sessions cannot access these tools or start workflows. Each fresh child receives its role preset, project instructions, the resolved step input, accepted prior results, and the native `structured_output` requirement. Bash results expose an execution reference for structured checks. `antfarm_status` shows the reason and up to three recent accepted outputs, each limited to 2,000 characters. Runs UI reads do not enter model context.
+The root model receives five workflow control tools. Each child receives the selected original persona files, declared skill instructions, project path, resolved step input and prior original context. It returns the requested `KEY: value` text. Children cannot start nested Antfarm teams. Run UI queries do not enter model context.
 
 #### Token effect
 
-Role instructions and the tool schemas contribute stable prompt text. Step inputs, story feedback, accepted summaries and human reconciliation guidance add bounded run-specific text to each child.
+Full identity, soul and responsibility instructions repeat for each fresh attempt. Prior output, story criteria, progress and verification feedback add task-specific input. Tool results can contain original context and story summaries; inspect long native transcripts separately.
 
 #### KV Cache effect
 
-The bundle adds no request prefix. Presets supply instructions; each fresh child receives step-specific context and its output schema.
+The identity section follows the shared native prompt. Its content is stable for the same installed agent, while step input and run-specific progress change. Fresh Sessions do not reuse prior conversation history; provider cache reuse depends on matching request prefixes.
 
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Each Run executes serially. Host capacity defaults to eight attempts, at most two per owner; admitted work waits in a persistent queue.
-- Worktrees separate checkout content, not shell, network, credentials, or external effects.
-- Original YAML/Markdown workflows can be imported; older Run journals remain inspection-only. Shared execution directories and automatic environment copying are unsupported.
-- The board includes explicitly authorized root Sessions. Archived owners must be restored before execution can resume.
-- The default `spawn` provider must support fresh local presets, structured output, and Agent options; inherited-context providers are rejected.
-- The representative real-model tasks required bounded retries and human reconciliation. They establish those scenarios, not a universal quality or cost guarantee. The configured `deepseek-flash` acceptance model has no image input; screenshots also received human/visual inspection. See [acceptance scope](PARITY.md#acceptance-scope).
+- Each Run executes serially. Stable agent identities permit one active attempt each; multiple runs wait when they share an agent.
+- Role policies restrict direct tools. Shell and skill access can still modify files; deployment permissions remain authoritative.
+- Original text outputs and PR links remain worker reports. The Host does not independently approve GitHub reviews or attach candidate-bound test evidence.
+- Interrupted effects can repeat after explicit recovery. SQLite, fresh Sessions and event logs do not guarantee exactly-once external actions.
+- OpenClaw cron installation, dashboard processes and polling-model calls use native DSH equivalents. Default Headless lacks the required preset composition; DSH `0.2.2-rc.1` has no TUI entry.
+- [PARITY](PARITY.md#acceptance-scope) separates local mechanism evidence from real-model quality, platform and remote release verification.
 
 <a id="dev-note"></a>
 ### Dev Note
@@ -165,6 +160,6 @@ The bundle adds no request prefix. Presets supply instructions; each fresh child
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The package ships prebuilt Git installation contents. Rebuild after source edits and verify the installed package in an isolated DSH profile; [PARITY.md](PARITY.md) records the release evidence and remaining limits.
+The Git release contains prebuilt Host/Web entries and original persona resources. [PARITY](PARITY.md#acceptance-scope) records the validation scope.
 
 </details>

@@ -1,1 +1,0 @@
-Implement the assigned story with the smallest complete change. Follow repository instructions, preserve unrelated work, and run focused checks. Address verification feedback before claiming completion. Leave pushing, PR creation and GitHub reviews to the workflow's delivery and review steps.

@@ -23,16 +23,16 @@ async function runComposition(args: string[] = []) {
 }
 
 describe('Cordis Loader composition with prebuilt host entries', () => {
-  it('registers six tools, commands and authorized Studio methods, then disposes every contribution', async () => {
+  it('registers five tools, commands and authorized Studio methods, then disposes every contribution', async () => {
     const result = await runComposition()
     expect(result.error?.killed).not.toBe(true)
     expect(result.error?.signal ?? null).toBeNull()
     expect(result.error, result.stderr).toBeNull()
     expect(result.stderr).toBe('')
     expect(JSON.parse(result.stdout)).toEqual({
-      toolNames: ['antfarm_cancel', 'antfarm_cleanup', 'antfarm_list', 'antfarm_resume', 'antfarm_run', 'antfarm_status'],
+      toolNames: ['antfarm_cancel', 'antfarm_list', 'antfarm_resume', 'antfarm_run', 'antfarm_status'],
       commands: ['antfarm'],
-      studioMethods: ['artifact', 'artifactContent', 'board', 'control', 'copyWorkflow', 'ensureExecution', 'events', 'health', 'healthHistory', 'list', 'page', 'removeWorkflow', 'saveWorkflow', 'setWorkflowEnabled', 'start', 'status', 'workflow', 'workflows'],
+      studioMethods: ['board', 'control', 'copyWorkflow', 'ensureExecution', 'events', 'health', 'healthHistory', 'list', 'page', 'removeWorkflow', 'saveWorkflow', 'setWorkflowEnabled', 'start', 'status', 'workflow', 'workflows'],
       studioRuns: [],
       disposed: { tools: [], commands: [], runtime: false, studio: false },
     })

@@ -1,5 +1,5 @@
 /** Narrow browser operation face; the Host rechecks owner, revision and state. */
-import type { AntfarmArtifactContent, AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId } from '../types.ts';
+import type { AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId } from '../types.ts';
 import type { WorkflowDraft } from '../workflow/types.ts';
 /** Session-scoped editor state retained across sidebar and Session navigation. */
 export interface AntfarmEditorDraft {
@@ -41,10 +41,6 @@ export interface AntfarmOperations {
     setEnabled(draft: WorkflowDraft, enabled: boolean, owner: AntfarmSessionId): Promise<void>;
     /** @param runId - Selected Run. @param owner - Owner. @param after - Cursor. @returns Event page. */
     events(runId: string, owner: AntfarmSessionId, after: number): Promise<AntfarmEventSummary[]>;
-    /** @param runId - Selected Run. @param owner - Owner. @param digest - Saved output. @returns Text preview. */
-    artifact(runId: string, owner: AntfarmSessionId, digest: string): Promise<string>;
-    /** @param runId - Owned Run. @param owner - Original owner. @param digest - Retained digest. @param signal - View lifetime. @returns Verified bytes. */
-    artifactContent(runId: string, owner: AntfarmSessionId, digest: string, signal: AbortSignal): Promise<AntfarmArtifactContent>;
     /** @param owner - Explicit resource scope. @returns Diagnosed health. */
     health(owner: AntfarmSessionId): Promise<AntfarmHealthReport>;
     /** @param owner - Authorized resource. @returns Diagnostic history without performing a check. */

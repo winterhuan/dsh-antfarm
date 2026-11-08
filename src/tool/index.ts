@@ -40,7 +40,7 @@ export function apply(ctx: Context): void {
     description: 'Run a declared antfarm team workflow and wait for its outcome, or admit it in the background. Use this when the user explicitly requests an antfarm or multi-agent team workflow.',
     parameters: {
       task: { type: 'string', required: true, description: 'Complete task for the workflow team.' },
-      background: { type: 'boolean', description: 'Return after durable admission when true. Omit or set false to wait for final acceptance, blocking or failure; use this for one-shot headless execution.' },
+      background: { type: 'boolean', description: 'Return after durable admission when true. Omit or set false to wait for completion, interruption or failure; use this for one-shot headless execution.' },
       workflow_id: { type: 'string', description: 'Optional workflow id. Omit it to use the configured default, normally feature-dev.' },
 
     },
@@ -151,12 +151,11 @@ export function apply(ctx: Context): void {
 
   register(defineTool({
     name: 'antfarm_resume',
-    description: 'Resume one failed, blocked or interrupted antfarm run owned by this session and wait for its outcome, or continue it in the background.',
+    description: 'Resume one failed or interrupted antfarm run owned by this session and wait for its outcome, or continue it in the background.',
     parameters: {
       run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' },
       guidance: { type: 'string', description: 'Required reconciliation for an uncertain attempt; otherwise optional guidance.' },
-      retry_grant: { type: 'number', description: 'Additional retries, 1 to 20; required for failed Runs. Omission preserves the saved budget.' },
-      background: { type: 'boolean', description: 'Return after admission when true. Omit or set false to wait for final acceptance, blocking or failure; use this for one-shot headless recovery.' },
+      background: { type: 'boolean', description: 'Return after admission when true. Omit or set false to wait for completion, interruption or failure; use this for one-shot headless recovery.' },
     },
     output: {
       schema: runOutput,
@@ -167,7 +166,7 @@ export function apply(ctx: Context): void {
     async execute(args, exec) {
       const parent = exec.agent
       if (parent === undefined) throw new Error('antfarm_resume requires an initiating agent')
-      const receipt = await ctx.antfarm.resume({ runId: await ctx.antfarm.find(args.run_id, parent.id), parent, ...(args.guidance === undefined ? {} : { guidance: args.guidance }), ...(args.retry_grant === undefined ? {} : { retryGrant: args.retry_grant }), signal: exec.signal })
+      const receipt = await ctx.antfarm.resume({ runId: await ctx.antfarm.find(args.run_id, parent.id), parent, ...(args.guidance === undefined ? {} : { guidance: args.guidance }), signal: exec.signal })
       const status = args.background === true ? receipt.status : (await ctx.antfarm.wait(receipt.runId, parent.id, exec.signal)).summary.status
       return { run_id: receipt.runId, ...(receipt.jobId === undefined ? {} : { job_id: String(receipt.jobId) }), workflow_id: receipt.workflowId, status, workspace: receipt.workspace, branch: receipt.branch }
     },
@@ -178,7 +177,7 @@ export function apply(ctx: Context): void {
     description: 'Cancel one active, blocked, or interrupted antfarm run owned by this session.',
     parameters: {
       run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' },
-      reason: { type: 'string', description: 'Cancellation reason recorded in the run journal.' },
+      reason: { type: 'string', description: 'Cancellation reason recorded in the run event log.' },
     },
     output: {
       schema: summaryOutput,
@@ -194,21 +193,4 @@ export function apply(ctx: Context): void {
     },
   }))
 
-  register(defineTool({
-    name: 'antfarm_cleanup',
-    description: 'Attempt clean-only removal of a retained antfarm worktree owned by this session.',
-    parameters: { run_id: { type: 'string', required: true, description: 'Run id, stable number, unique id prefix or task substring.' } },
-    output: {
-      schema: summaryOutput,
-      render(_args, value): ContentBlock[] {
-        return [{ type: 'text', text: `Clean-only workspace cleanup checked antfarm run ${value.run_id}.\nRun status: ${value.status}\nWorkspace: ${value.workspace}` }]
-      },
-    },
-    async execute(args, exec) {
-      const caller = exec.agent
-      if (caller === undefined) throw new Error('antfarm_cleanup requires an initiating agent')
-      const summary = await ctx.antfarm.cleanup(await ctx.antfarm.find(args.run_id, caller.id), caller.id)
-      return { run_id: summary.runId, status: summary.status, workspace: summary.workspace, branch: summary.branch }
-    },
-  }))
 }

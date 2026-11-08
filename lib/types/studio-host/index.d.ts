@@ -1,7 +1,7 @@
 /** Resource-authorized inspection and revision-bound Antfarm operations. */
 import type { Context } from '@deepseek-ai/cordis';
 import { TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol';
-import type { AntfarmArtifactContent, AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from '../types.ts';
+import type { AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from '../types.ts';
 import type { WorkflowDraft } from '../workflow/types.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -100,24 +100,6 @@ export declare class AntfarmStudioGateway extends TypertRemoteService {
      * @returns Committed facts.
      */
     events(runId: string, sessionId: AntfarmSessionId, after: number, signal: AbortSignal): Promise<AntfarmEventSummary[]>;
-    /**
-     * Read a verified UTF-8 preview of a retained artifact.
-     * @param runId - Owned Run.
-     * @param sessionId - Owner.
-     * @param sha256 - Retained digest.
-     * @param signal - Read lifetime.
-     * @returns Text preview.
-     */
-    artifact(runId: string, sessionId: AntfarmSessionId, sha256: string, signal: AbortSignal): Promise<string>;
-    /**
-     * Read digest-verified retained bytes for download.
-     * @param runId - Owned Run.
-     * @param sessionId - Owner.
-     * @param sha256 - Retained digest.
-     * @param signal - Read lifetime.
-     * @returns Verified download content.
-     */
-    artifactContent(runId: string, sessionId: AntfarmSessionId, sha256: string, signal: AbortSignal): Promise<AntfarmArtifactContent>;
     /**
      * Inspect Run health under the selected Session’s authority.
      * @param sessionId - Authorized owner.

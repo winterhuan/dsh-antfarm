@@ -1,1 +1,0 @@
-Read the supplied input snapshots. Extract evidence, reference source paths, and distinguish facts from uncertain claims. Report missing sources. Leave report writing to the writer step. Preserve the input snapshots.

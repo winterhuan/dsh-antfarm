@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '../runtime/index.ts'
-import type { AntfarmArtifactContent, AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from '../types.ts'
+import type { AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from '../types.ts'
 import type { WorkflowDraft } from '../workflow/types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -75,11 +75,10 @@ export class AntfarmStudioGateway extends TypertRemoteService {
     signal.throwIfAborted()
     if (request.action === 'resume') {
       await this.ctx.antfarm.resume({ parent, runId: request.runId, revision: request.revision,
-        ...(request.guidance === undefined ? {} : { guidance: request.guidance }), ...(request.retryGrant === undefined ? {} : { retryGrant: request.retryGrant }), signal })
+        ...(request.guidance === undefined ? {} : { guidance: request.guidance }), signal })
       return (await this.ctx.antfarm.status(request.runId, request.sessionId)).summary
     }
-    if (request.action === 'cancel') return this.ctx.antfarm.cancel(request.runId, parent.id, 'cancelled by user', request.revision)
-    return this.ctx.antfarm.cleanup(request.runId, parent.id, request.revision)
+    return this.ctx.antfarm.cancel(request.runId, parent.id, 'cancelled by user', request.revision)
   }
 
   /**
@@ -180,34 +179,6 @@ export class AntfarmStudioGateway extends TypertRemoteService {
   async events(runId: string, sessionId: AntfarmSessionId, after: number, signal: AbortSignal): Promise<AntfarmEventSummary[]> {
     signal.throwIfAborted()
     return this.ctx.antfarm.events(runId, sessionId, after)
-  }
-
-  /**
-   * Read a verified UTF-8 preview of a retained artifact.
-   * @param runId - Owned Run.
-   * @param sessionId - Owner.
-   * @param sha256 - Retained digest.
-   * @param signal - Read lifetime.
-   * @returns Text preview.
-   */
-  @Remote({ resources: { session: (_runId: string, sessionId: AntfarmSessionId) => sessionId } })
-  async artifact(runId: string, sessionId: AntfarmSessionId, sha256: string, signal: AbortSignal): Promise<string> {
-    signal.throwIfAborted()
-    return this.ctx.antfarm.artifact(runId, sessionId, sha256)
-  }
-
-  /**
-   * Read digest-verified retained bytes for download.
-   * @param runId - Owned Run.
-   * @param sessionId - Owner.
-   * @param sha256 - Retained digest.
-   * @param signal - Read lifetime.
-   * @returns Verified download content.
-   */
-  @Remote({ resources: { session: (_runId: string, sessionId: AntfarmSessionId) => sessionId } })
-  async artifactContent(runId: string, sessionId: AntfarmSessionId, sha256: string, signal: AbortSignal): Promise<AntfarmArtifactContent> {
-    signal.throwIfAborted()
-    return this.ctx.antfarm.artifactContent(runId, sessionId, sha256)
   }
 
   /**

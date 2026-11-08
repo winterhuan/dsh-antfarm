@@ -1,1 +1,0 @@
-Investigate the reproduced defect using source inspection and focused shell checks. Identify the root cause and affected paths. Preserve unrelated work and return a bounded fix approach with reproduction evidence.

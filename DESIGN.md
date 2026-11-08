@@ -1,5 +1,5 @@
 ---
-description: "Antfarm execution, candidate acceptance, checkpoint recovery, resource lifecycle and DSH ownership."
+description: "Original Antfarm identities, SQL transitions and native DSH lifecycle ownership."
 ---
 
 # Antfarm implementation
@@ -8,86 +8,68 @@ English | [中文](DESIGN.zh.md)
 
 ## Summary
 
-Antfarm runs specialist workflows in owned Git or file workspaces and retains accepted checkpoints across Host restarts. DSH owns presets, model execution, child transcripts, jobs, permissions and subprocesses. Antfarm owns workflow configuration, admitted work, candidate acceptance, retries, recovery and output retention. This reference targets DSH `0.2.2-rc.1`; [README.md](README.md) owns installation and user actions.
+Antfarm retains the original workflow method and SQLite business state while DSH executes its agents. Stable identities and personas belong to Antfarm; runtime Agents and fresh Sessions belong to DSH. This reference describes the `0.3.0` development implementation on DSH `0.2.2-rc.1`; [README](README.md) owns configuration and user operations.
 
 ## Table of Contents
 
-- [Execution and checkpoints](#execution)
+- [Identity and execution](#identity)
+- [Business state](#state)
 - [Recovery and ownership](#recovery)
-- [Workspace lifecycle](#workspace)
 - [Client and packaging](#client)
-- [Validation](#validation)
+- [Verification](#verification)
 - [Dev Note](#dev-note)
 
 -----
 
-<a id="execution"></a>
-## Execution and checkpoints
+<a id="identity"></a>
+## Identity and execution
 
-The [loader](src/workflow/loader.ts) resolves version 2 YAML and Markdown before starting a run. It rejects unknown fields, invalid references, unsupported template keys, and instruction paths escaping the configured root. A saved run contains that resolved snapshot; recovery does not reload edited sources.
+The [loader](src/workflow/loader.ts) reads original YAML and confined persona resources. A workflow-qualified agent owns its name, `IDENTITY.md`, `SOUL.md`, `AGENTS.md`, workspace, role, model and optional skills. The [adapter](src/runtime/agents.ts) reserves each attempt’s native Session ID before startup, maps it to that identity and renders its persona through DSH’s system-prompt extension. This follows [DS-Bot](https://github.com/Fei2411/DS-Bot)’s identity/Session separation.
 
-Each agent names a deployment-owned preset, Markdown instructions, and optional model/deadline overrides. The runtime requires a fresh local provider supporting presets, structured output, and Agent options. Each attempt reserves a native child id before activation, supplies the run cwd directly, awaits its result, validates structured output, and awaits child disposal. It uses no idle coordinator or separate model engine.
+Every step or story attempt starts a fresh caller-delivered local activation with the shared `standard` composition. Role restrictions mask visible tools and guard actual dispatch. Persona resources update under the claimed agent’s exclusive slot; conflicting local edits remain intact and stop that attempt. Declared skills resolve through native providers; missing optional skills are disclosed, matching original provisioning.
 
-Native [execution evidence](src/runtime/evidence.ts) records foreground shell commands, candidate digests, exit status and bounded output. A required check cites an execution reference or the complete command and must complete successfully in the owned cwd without changing the candidate. Source edits or repairs invalidate previous final checks. Delivery queries bind an open PR and an approving review to the committed head; self-approval is refused. Frontend changes can require actual browser-command evidence and retained PNG/JPEG screenshots.
+```mermaid
+flowchart LR
+  YAML[Original workflow and persona] --> SQL[SQLite claim]
+  SQL --> Agent[Native DSH Agent and fresh Session]
+  Agent --> Text[KEY: value response]
+  Text --> SQL
+  SQL -.-> Events[Observation events]
+```
 
-The [driver](src/runtime/orchestrator.ts) advances through complete [checkpoints](src/persistence/types.ts). A planner checkpoint accepts stories, summary, and next cursor together. A single-step checkpoint accepts the successful summary and cursor. Failures remain feedback and never enter accepted context as successful results. Parsing bounds summaries, stories, ids, acceptance criteria, and retry budgets.
+<a id="state"></a>
+## Business state
 
-Story loops execute the first non-done story in a fresh child. A separate configured verification child decides acceptance. Failure consumes the current story's retries and retains feedback; accepted stories remain done. The loop consumes its verification step rather than executing it again at top level.
+The [schema](src/persistence/schema.ts) preserves the original `runs`, `steps` and `stories` columns. The [database](src/persistence/database.ts) commits admission, claim, output/context, story verification, retry and resume transitions atomically. Additional `dsh_runs` and `dsh_attempts` associate native owners and exact claimant Sessions; a separate host association excludes concurrent native dispatchers. They do not replace the original business tables.
 
-Top-level failure consumes step retries, then a configured earlier repair target receives bounded attempts with failure feedback. Successful repair returns to the failed step. Loop repair uses `repairInput` across accepted stories without erasing done stories. Exhaustion records a blocked checkpoint for human recovery or settles the run as failed.
+Worker replies use original multiline `KEY: value` text and `STORIES_JSON`. Loop completion marks a story done before its referenced verifier runs; rejection retries that story. Resume preserves consumed story retries. Native deadlines feed the original abandonment budget after confirmed child exit; single attempts fail at the fifth abandonment. JSONL events are best-effort observation, emitted only after a successful transaction.
+
+The Host retains original reported-result semantics. It does not convert a reply into independent test or GitHub acceptance. Single-step `on_fail` declarations remain original workflow metadata; verification-specific story retry follows the original worker protocol. [PARITY](PARITY.md) records intentional native differences and evidence limits.
 
 <a id="recovery"></a>
 ## Recovery and ownership
 
-The [runtime](src/runtime/index.ts) validates a live initiating Agent for start/resume, records its Session id as owner, and saves admission before waiting for execution capacity. Reads and control actions require that Session id. Each run permits one local operation and one journal writer; contenders fail instead of starting a second driver. [Storage](src/persistence/storage.ts) uses an OS-backed SQLite lock for one Host per root and maintains a disposable query index. [Capacity](src/runtime/capacity.ts) limits actual attempts, preserving owner queue order while rotating eligible owners.
+The initiating root Session owns reads and controls. [Native owner recovery](src/runtime/owner.ts) restores its persisted composition without a parent model turn. Startup dispatches inactive work that has no open attempt; an unmatched native attempt stays interrupted. Explicit guidance is required before recovery can repeat uncertain effects. SQLite and fresh Sessions do not supply exactly-once execution.
 
-The [journal](src/persistence/journal.ts) saves sequenced, flushed version 3 JSONL records. [Fold](src/persistence/fold.ts) rejects malformed records and reconstructs the snapshot, checkpoint, attempt identity, and workspace disposition. Native Session logs stay under DSH ownership. [Native owner recovery](src/runtime/owner.ts) restores the original unarchived root composition without a model turn and dispatches saved safe work on startup. Open attempts stay interrupted for reconciliation. Crash-tail recovery retains original bytes and their digest.
+Each stable agent permits one active native attempt across runs. Host/owner capacity and model-free polling wait for occupied agents. Jobs own dispatch; a rejected Job admission leaves an inspectable interrupted Run. Cancellation, owner shutdown and plugin disposal wait for exact activation teardown. Teardown failure retains interruption instead of reporting confirmed cancellation or starting another worker.
 
-A child can finish before its business checkpoint commits. An unmatched attempt signals uncertain effects, not proof that no work occurred. Resume requires guidance after inspecting its transcript and worktree, then uses fresh children from the last accepted checkpoint. External effects can repeat; this is checkpoint recovery, not exactly-once execution.
-
-Resume verifies canonical paths, repository identity, expected branch, and ancestry from the captured base commit. Descendant commits and manual working-tree edits remain valid. Completed/cancelled or cleaned runs cannot resume. Failed runs require an explicit retry grant and retain cumulative history. Identifiable older or corrupt evidence is read-only and cannot silently migrate or rewrite.
-
-Cancellation stops the current child and awaits disposal before committing terminal/disposition records and settling its job. Plugin disposal aborts operations and waits for completion. Cancelling inactive blocked/interrupted evidence takes the writer lease and retains output. A blocked run ends its background job but remains resumable.
-
-<a id="workspace"></a>
-## Workspace lifecycle
-
-The [workspace owner](src/workspace/git.ts) captures the non-bare repository root, common Git directory, and current commit. It creates `antfarm/<runId>` from that commit in the project-local configured directory. Base checkout edits and untracked/ignored files are excluded; no environment files are copied. DSH subprocesses own Git execution, cancellation, output collection, and exit.
-
-Creation rejects tracked destination directories, existing destinations, escaped paths, and symlinked/changed ancestors. Local Git exclude hides the configured worktree directory without changing tracked `.gitignore`. Identity checks require the expected branch and a HEAD descended from the saved base; child-created commits remain valid output.
-
-Automatic cleanup is configurable for completed/cancelled runs. Failed/blocked runs retain output. Explicit cleanup requires an inactive terminal run and the writer lease. Tracked modifications, untracked files, ignored files, identity mismatch, and Git errors retain the workspace with a reason. Normal worktree removal never forces deletion and always preserves the branch.
-
-The [file workspace](src/workspace/files.ts) supports research and writing outside Git. Admission snapshots explicitly declared UTF-8 inputs; each Run owns a separate directory and records output digests. Accepted artifacts are copied into private Run storage for preview/download after clean-up. Cleanup compares the retained candidate and refuses changes or escaped paths; original inputs remain outside the owned directory.
-
-Presets constrain directly exposed tools. Verification keeps shell for checks, and skill execution can have further effects; removing write tools does not confine the filesystem. Deployment permissions, sandbox, and credentials still apply. Worktrees do not isolate remote APIs or the host account.
+Agent workspaces remain shared identity resources. Completed loop progress is archived; the Host does not remove per-agent directories. [Historical reads](src/persistence/legacy.ts) inspect attributable complete-prefix journal facts without rewriting, migrating or replaying old runs. Best-effort webhook delivery is separate from SQL acceptance and drains at host shutdown.
 
 <a id="client"></a>
 ## Client and packaging
 
-The [bundle patch](cordis.patch.yml) activates runtime, tools, commands, authorized Studio Host, a Client anchor, and six presets from one package. [package.json](package.json) pins DSH `0.2.2-rc.1`. Host builds generate Typert descriptors/declarations; Client mounts `dsh-antfarm/remote` before registering readers.
+The [Studio gateway](src/studio-host/index.ts) checks selected Session resources and expected Run/source revisions. The [client](src/client/mount.tsx) reuses native sidebar, board, navigation, locale and feedback components. It shows original step state/output and stories; resume and cancel correspond to runtime operations. Shared workspaces expose no cleanup button or additional retry grant.
 
-The [Studio Host](src/studio-host/index.ts) delegates Session-addressed list/status to runtime. [Client mounting](src/client/mount.tsx) registers one native right-sidebar tab and joins Remote, dictionaries, tab, and body lifetimes. It rolls back partial mounting and opens native child addresses. It also registers the native workflow board, revision-bound run controls and [workflow editor](src/client/WorkflowPanel.tsx). Profile writes require Host ownership. Dirty workflow drafts survive panel/Session navigation; launch retries reuse a stable admission id.
+The independent package contains prebuilt Host/Web entries, generated Remotes, original resources and their MIT attribution. [Composition tests](tests/composition.spec.ts) load built exports in plain Node and verify registration/disposal. The parent repository records only the plugin submodule pointer and integration documentation.
 
-The [workflow manager](src/workflow/manager.ts) resolves project, configured user, then package resources. Editing creates writable overrides; it never rewrites bundled definitions. Canonical-path checks, serialized revision checks, unique temporary writes and immutable role revisions prevent escaped writes and stale saves. Enablement affects new admission; active Runs retain their snapshots. Removing an override restores the inherited definition.
+<a id="verification"></a>
+## Verification
 
-Model-free health checks record bounded diagnostics and do not approve results. [Notifications](src/runtime/notifications.ts) persist delivery state and stable event identities. Native owner delivery awaits Session flush; explicit webhooks use environment credential references and retain uncertain outcomes. Health recovery dispatches only safe work through the existing driver.
+Owner-local tests cover unchanged original resources, SQL transitions, late results, role policy, fresh personas/Sessions, waiting, cancellation, historical preservation and webhooks. Real-host evidence and remaining platform/model checks belong to [acceptance scope](PARITY.md#acceptance-scope).
 
-The [query hook](src/client/queries.ts) retains loaded content on failure, aborts obsolete Session/selection requests, and ignores late completion. It polls visible views after reads finish, including empty or completed lists, to discover new Runs. [RunsPanel](src/client/RunsPanel.tsx) renders localized facts with native primitives. The board reads explicitly authorized root Sessions through the same runtime index.
-
-<a id="validation"></a>
-## Validation
-
-The [tests](tests/) own workflow validation, checkpoints, journal corruption, worktrees, cancellation, recovery, and Client reads/lifetimes. Boundary doubles provide deterministic unit evidence; they do not prove model execution or browser transport. Current results belong in a dated acceptance record; [baseline coverage](PARITY.md) separates implementation from external acceptance.
-
-Use [README development commands](README.md#understand-the-implementation) for typecheck, build, tests, and package checks. Before release, verify isolated DSH bundle/presets, native child cwd and structured output, Runs/child navigation, and the target platform. Model/network access and remote installation need separate executed evidence.
+-----
 
 <a id="dev-note"></a>
-### Dev Note
+## Dev Note
 
-<details>
-<summary>Working context for maintainers — click to expand</summary>
-
-The runtime excludes implicit journal migration, shared execution directories, automatic environment copying and a second model scheduler. Native Workflow/Agent Team remain independent because they do not supply this Run's durable cursor and required checkpoint bindings.
-
-</details>
+The current design rationale is the [original agents/storage note](https://github.com/winterhuan/dsh-creative/blob/develop/.agents/notes/implemented/architecture/2026-11-08-antfarm-original-agents-and-storage.md).

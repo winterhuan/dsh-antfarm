@@ -4,13 +4,11 @@ import type {
   TypertRemoteInfo,
   TypertRemoteMethod,
 } from '@deepseek-ai/dsh-typert-protocol'
-import type { AntfarmArtifactContent, AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from 'dsh-antfarm/types'
+import type { AntfarmControlRequest, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmLaunchRequest, AntfarmRunSummary, AntfarmSessionId, AntfarmStatus } from 'dsh-antfarm/types'
 import type { WorkflowDraft } from 'dsh-antfarm/workflow/types'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespace$616e746661726d53747564696f {
-    artifact: (runId: string, sessionId: AntfarmSessionId, sha256: string, signal?: AbortSignal) => Promise<RemoteResult<string>>
-    artifactContent: (runId: string, sessionId: AntfarmSessionId, sha256: string, signal?: AbortSignal) => Promise<RemoteResult<AntfarmArtifactContent>>
     board: (owners: readonly AntfarmSessionId[], signal?: AbortSignal) => Promise<RemoteResult<AntfarmRunSummary[]>>
     control: (request: AntfarmControlRequest, signal?: AbortSignal) => Promise<RemoteResult<AntfarmRunSummary>>
     copyWorkflow: (draft: WorkflowDraft, newId: string, sessionId: AntfarmSessionId, signal?: AbortSignal) => Promise<RemoteResult<WorkflowDraft>>
@@ -29,8 +27,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     workflows: (sessionId: AntfarmSessionId, signal?: AbortSignal) => Promise<RemoteResult<string[]>>
   }
   interface TypertRemoteMap {
-    'antfarmStudio/artifact': (runId: string, sessionId: AntfarmSessionId, sha256: string, signal?: AbortSignal) => Promise<RemoteResult<string>>
-    'antfarmStudio/artifactContent': (runId: string, sessionId: AntfarmSessionId, sha256: string, signal?: AbortSignal) => Promise<RemoteResult<AntfarmArtifactContent>>
     'antfarmStudio/board': (owners: readonly AntfarmSessionId[], signal?: AbortSignal) => Promise<RemoteResult<AntfarmRunSummary[]>>
     'antfarmStudio/control': (request: AntfarmControlRequest, signal?: AbortSignal) => Promise<RemoteResult<AntfarmRunSummary>>
     'antfarmStudio/copyWorkflow': (draft: WorkflowDraft, newId: string, sessionId: AntfarmSessionId, signal?: AbortSignal) => Promise<RemoteResult<WorkflowDraft>>
@@ -54,8 +50,6 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
 }
 
 export declare const TYPERT_REMOTE: TypertRemoteInfo<{
-  readonly 'antfarmStudio/artifact': TypertRemoteMethod<{ readonly 'runId': string; readonly 'sessionId': AntfarmSessionId; readonly 'sha256': string }, string>
-  readonly 'antfarmStudio/artifactContent': TypertRemoteMethod<{ readonly 'runId': string; readonly 'sessionId': AntfarmSessionId; readonly 'sha256': string }, AntfarmArtifactContent>
   readonly 'antfarmStudio/board': TypertRemoteMethod<{ readonly 'owners': readonly AntfarmSessionId[] }, AntfarmRunSummary[]>
   readonly 'antfarmStudio/control': TypertRemoteMethod<{ readonly 'request': AntfarmControlRequest }, AntfarmRunSummary>
   readonly 'antfarmStudio/copyWorkflow': TypertRemoteMethod<{ readonly 'draft': WorkflowDraft; readonly 'newId': string; readonly 'sessionId': AntfarmSessionId }, WorkflowDraft>

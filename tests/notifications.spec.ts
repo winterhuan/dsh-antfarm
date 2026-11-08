@@ -1,53 +1,58 @@
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
-import { RunJournal } from '../src/persistence/journal.ts'
-import { loadWorkflow } from '../src/workflow/loader.ts'
-import { deliverOutcome, deliverWebhook } from '../src/runtime/notifications.ts'
-import { publicWebhookUrl } from '../src/workflow/notifications.ts'
+/** Webhook requests are isolated from workflow acceptance and drained by disposal. */
+import { createServer } from 'node:http'
+import { expect, it, onTestFinished } from 'vitest'
+import { WorkflowNotifications } from '../src/runtime/notifications.ts'
 
-async function fixture() {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'antfarm-notifications-')))
-  onTestFinished(async () => { vi.unstubAllGlobals(); vi.useRealTimers(); await rm(root, { recursive: true, force: true }) })
-  const workflow = await loadWorkflow('smoke', [join(import.meta.dirname, '../workflows')])
-  const journal = await RunJournal.create(root, { runId: 'af-notice', ownerSessionId: 'owner', workflowId: 'smoke', task: 'Notify', baseCwd: root, workspace: join(root, 'workspace'), branch: 'antfarm/af-notice', baseRevision: 'a'.repeat(40), provider: 'spawn', resolvedWorkflowSnapshot: workflow })
-  await journal.append({ type: 'run-end', data: { status: 'failed', reason: 'repair budget exhausted' } })
-  return journal
-}
-
-describe('durable notification results', () => {
-  it('deduplicates confirmed owner delivery by business transition after diagnostic writes', async () => {
-    const journal = await fixture()
-    const send = vi.fn()
-    const parent = { id: SessionId('owner'), send } as Agent
-    const flush = vi.fn(async () => true)
-    await deliverOutcome(journal, parent, '', undefined, new AbortController().signal, flush)
-    await journal.append({ type: 'health', data: { kind: 'retained', detail: 'inspect' } })
-    await deliverOutcome(journal, parent, '', undefined, new AbortController().signal, flush)
-    expect(send).toHaveBeenCalledTimes(1)
-    expect(flush).toHaveBeenCalledTimes(1)
-    expect(journal.state.status).toBe('failed')
+it('sends original event fields with deployment authentication', async () => {
+  let received!: (value: { authorization: string | undefined; body: string }) => void
+  const request = new Promise<{ authorization: string | undefined; body: string }>((resolve) => {
+    received = resolve
   })
-
-  it('bounds a webhook wait at five seconds and retains uncertainty without storing secrets', async () => {
-    const journal = await fixture()
-    vi.useFakeTimers()
-    vi.stubGlobal('fetch', (_url: string, options: RequestInit) => new Promise((_resolve, reject) => { options.signal?.addEventListener('abort', () => reject(new Error('credential must not be logged: secret-value')), { once: true }) }))
-    const delivery = deliverWebhook(journal, 'stable-event', 'run.failed', 'repair budget exhausted', 'https://example.test/hooks', 'secret-value', new AbortController().signal)
-    // Journal fsync completes before fetch starts, so synchronize on the persisted pending notice.
-    await vi.waitFor(() => { expect(journal.latest('notification')?.data).toMatchObject({ status: 'pending' }) })
-    await vi.advanceTimersByTimeAsync(5000)
-    await delivery
-    expect(journal.latest('notification')?.data).toMatchObject({ status: 'failed' })
-    expect(await readFile(journal.eventsPath, 'utf8')).not.toContain('secret-value')
-    expect(journal.state.status).toBe('failed')
+  const server = createServer((req, res) => {
+    let body = ''
+    req.on('data', (chunk) => {
+      body += chunk
+    })
+    req.on('end', () => {
+      received({ authorization: req.headers.authorization, body })
+      res.writeHead(204).end()
+    })
   })
-
-  it('refuses credentials and fragments in public workflow subscriptions', () => {
-    expect(publicWebhookUrl('https://example.test/hooks')).toBe('https://example.test/hooks')
-    for (const url of ['https://example.test/hooks#auth=secret', 'https://user:secret@example.test/', 'https://example.test/?token=secret']) expect(() => publicWebhookUrl(url)).toThrow('credentials')
+  onTestFinished(async () => {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
   })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('missing server address')
+  const notices = new WorkflowNotifications(10000, 'fixture-token')
+  onTestFinished(() => notices.dispose())
+  const event = { ts: '2026-11-08T00:00:00Z', event: 'run.completed', runId: 'fixture-run' }
+  notices.send(event, `http://127.0.0.1:${address.port}/events`)
+  const value = await request
+  expect(value.authorization).toBe('fixture-token')
+  expect(JSON.parse(value.body)).toEqual(event)
+})
+
+it('aborts an outstanding webhook before disposing its request callbacks', async () => {
+  let received!: () => void
+  const request = new Promise<void>((resolve) => {
+    received = resolve
+  })
+  const server = createServer((req) => {
+    req.resume()
+    received()
+  })
+  onTestFinished(async () => {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('missing server address')
+  const notices = new WorkflowNotifications(10000)
+  onTestFinished(() => notices.dispose())
+  notices.send({ ts: '', event: 'step.running', runId: 'fixture' }, `http://127.0.0.1:${address.port}/events`)
+  await request
+  await notices.dispose()
 })

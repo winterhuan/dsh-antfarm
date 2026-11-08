@@ -1,226 +1,389 @@
+# Ralph loop (https://github.com/snarktank/ralph) — each agent runs in a fresh
+# session with clean context. Memory persists via git history and progress files.
 id: feature-dev
-name: Feature development
-version: 2
-description: Plan, prepare, implement and verify stories, test, create a PR, and
-  publish an independent review.
+name: Feature Development Workflow
+version: 5
+description: |
+  Story-based execution pipeline. Planner decomposes tasks into user stories.
+  Setup prepares the environment and establishes baseline.
+  Developer implements each story (with tests) in a fresh session. Verifier checks each story.
+  Then integration/E2E testing, PR creation, and code review.
+
+polling:
+  model: default
+  timeoutSeconds: 120
+
 agents:
   - id: planner
-    name: Feature planner
-    timeoutSeconds: 900
-    preset: antfarm-analysis
-    instructions: agents/planner.md
+    name: Planner
+    role: analysis
+    description: Decomposes tasks into ordered user stories.
+    workspace:
+      baseDir: agents/planner
+      files:
+        AGENTS.md: agents/planner/AGENTS.md
+        SOUL.md: agents/planner/SOUL.md
+        IDENTITY.md: agents/planner/IDENTITY.md
+
   - id: setup
-    name: Workspace setup
-    timeoutSeconds: 1200
-    preset: antfarm-coding
-    instructions: agents/setup.md
+    name: Setup
+    role: coding
+    description: Prepares environment, creates branch, establishes baseline.
+    workspace:
+      baseDir: agents/setup
+      files:
+        AGENTS.md: ../../agents/shared/setup/AGENTS.md
+        SOUL.md: ../../agents/shared/setup/SOUL.md
+        IDENTITY.md: ../../agents/shared/setup/IDENTITY.md
+
   - id: developer
-    name: Story developer
-    timeoutSeconds: 1800
-    preset: antfarm-coding
-    instructions: agents/developer.md
+    name: Developer
+    role: coding
+    description: Implements features, writes tests, creates PRs.
+    workspace:
+      baseDir: agents/developer
+      files:
+        AGENTS.md: agents/developer/AGENTS.md
+        SOUL.md: agents/developer/SOUL.md
+        IDENTITY.md: agents/developer/IDENTITY.md
+
   - id: verifier
-    name: Story verifier
-    timeoutSeconds: 900
-    preset: antfarm-verification
-    instructions: agents/verifier.md
+    name: Verifier
+    role: verification
+    description: Quick sanity check - did developer actually do the work?
+    workspace:
+      baseDir: agents/verifier
+      skills:
+        - agent-browser
+      files:
+        AGENTS.md: ../../agents/shared/verifier/AGENTS.md
+        SOUL.md: ../../agents/shared/verifier/SOUL.md
+        IDENTITY.md: ../../agents/shared/verifier/IDENTITY.md
+
   - id: tester
-    name: Test engineer
-    timeoutSeconds: 1200
-    preset: antfarm-verification
-    instructions: agents/tester.md
+    name: Tester
+    role: testing
+    description: Integration and E2E testing after all stories are implemented.
+    workspace:
+      baseDir: agents/tester
+      files:
+        AGENTS.md: agents/tester/AGENTS.md
+        SOUL.md: agents/tester/SOUL.md
+        IDENTITY.md: agents/tester/IDENTITY.md
+
   - id: reviewer
-    name: Final reviewer
-    timeoutSeconds: 900
-    preset: antfarm-verification
-    instructions: agents/reviewer.md
-  - id: pr
-    name: PR delivery
-    preset: antfarm-pr
-    instructions: ../shared/pr.md
-    timeoutSeconds: 900
+    name: Reviewer
+    role: analysis
+    description: Reviews PRs, requests changes or approves.
+    workspace:
+      baseDir: agents/reviewer
+      skills:
+        - agent-browser
+      files:
+        AGENTS.md: agents/reviewer/AGENTS.md
+        SOUL.md: agents/reviewer/SOUL.md
+        IDENTITY.md: agents/reviewer/IDENTITY.md
+
 steps:
   - id: plan
     agent: planner
-    type: single
-    input: >
-      Analyze this task in the repository at {{workspace}}:
+    input: |
+      Decompose the following task into ordered user stories for autonomous execution.
 
-
+      TASK:
       {{task}}
 
+      Instructions:
+      1. Explore the codebase to understand the stack, conventions, and patterns
+      2. Break the task into small user stories (max 20)
+      3. Order by dependency: schema/DB first, backend, frontend, integration
+      4. Each story must fit in one developer session (one context window)
+      5. Every acceptance criterion must be mechanically verifiable
+      6. Always include "Typecheck passes" as the last criterion in every story
+      7. Every story MUST include test criteria — "Tests for [feature] pass"
+      8. The developer is expected to write tests as part of each story
 
-      Return a small ordered set of independently implementable stories with
-      concrete acceptance criteria.
-    maxRetries: 2
-    output: stories
+      Reply with:
+      STATUS: done
+      REPO: /path/to/repo
+      BRANCH: feature-branch-name
+      STORIES_JSON: [ ... array of story objects ... ]
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
+
   - id: setup
     agent: setup
-    type: single
-    input: >
-      Prepare {{workspace}} on {{branch}} for this task:
+    input: |
+      Prepare the development environment for this feature.
 
-
+      TASK:
       {{task}}
 
+      REPO: {{repo}}
+      BRANCH: {{branch}}
 
-      Inspect repository instructions, dependencies, and the current test
-      baseline. Summarize setup facts without implementing feature stories.
+      Instructions:
+      1. cd into the repo
+      2. Create the feature branch (git checkout -b {{branch}})
+      3. Read package.json, CI config, test config to understand the build/test setup
+      4. Ensure .gitignore exists — if missing, create one appropriate for the detected stack (must include .env, node_modules/, *.key, *.pem at minimum)
+      5. Run the build to establish a baseline
+      6. Run the tests to establish a baseline
+      7. Report what you found
 
+      Reply with:
+      STATUS: done
+      BUILD_CMD: <build command>
+      TEST_CMD: <test command>
+      CI_NOTES: <brief CI notes>
+      BASELINE: <baseline status>
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
 
-      Prior results:
-
-      {{results}}
-
-
-      Return named values: test_cmd, build_cmd, baseline, frontend_paths,
-      environment.
-    maxRetries: 2
-    output: result
   - id: implement
     agent: developer
     type: loop
-    over: stories
-    completion: all_done
-    freshSession: true
-    input: >
-      Implement only this story in {{workspace}} on {{branch}}:
+    loop:
+      over: stories
+      completion: all_done
+      fresh_session: true
+      verify_each: true
+      verify_step: verify
+    input: |
+      Implement the following user story. You are working on ONE story in a fresh session.
 
+      TASK (overall):
+      {{task}}
 
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+      BUILD_CMD: {{build_cmd}}
+      TEST_CMD: {{test_cmd}}
+
+      CURRENT STORY:
       {{current_story}}
 
+      COMPLETED STORIES:
+      {{completed_stories}}
 
-      Previous verification feedback:
+      STORIES REMAINING: {{stories_remaining}}
 
+      VERIFY FEEDBACK (if retrying):
       {{verify_feedback}}
 
+      PROGRESS LOG:
+      {{progress}}
 
-      Preserve unrelated work, run focused checks, and summarize changed paths
-      and test results.
+      Instructions:
+      1. Read progress-{{run_id}}.txt — especially the Codebase Patterns section
+      2. Pull latest on the branch
+      3. Implement this story only
+      4. Write tests for this story's functionality
+      5. Run typecheck / build
+      6. Run tests to confirm they pass
+      7. Commit: feat: {{current_story_id}} - {{current_story_title}}
+      8. Rewrite progress-{{run_id}}.txt with updated story results and patterns
+      9. Update Codebase Patterns if you found reusable patterns
 
+      Reply with:
+      STATUS: done
+      CHANGES: what you implemented
+      TESTS: what tests you wrote
+    expects: "STATUS: done"
+    max_retries: 2
+    on_fail:
+      escalate_to: human
 
-      Commit this story on the supplied branch after its focused checks pass.
-    maxRetries: 1
-    verifyEach: true
-    verifyStep: verify-story
-    repairInput: >
-      Repair the implementation after a later quality check failed.
-
-
-      Failure details:
-
-      {{issues}}
-
-
-      Completed story summary:
-
-      {{stories_summary}}
-
-
-      Inspect the current diff, make the smallest complete repair, run focused
-      checks, and summarize changed paths and test results.
-  - id: verify-story
+  - id: verify
     agent: verifier
-    type: single
-    input: >
-      Independently verify this story against the current repository state:
+    input: |
+      Verify the developer's work on this story.
 
+      TASK (overall):
+      {{task}}
 
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+      CHANGES: {{changes}}
+      TEST_CMD: {{test_cmd}}
+
+      CURRENT STORY:
       {{current_story}}
 
+      PROGRESS LOG:
+      {{progress}}
 
-      Claimed changes:
+      Check:
+      1. Code exists (not just TODOs or placeholders)
+      2. Each acceptance criterion for the story is met
+      3. Tests were written for this story's functionality
+      4. Tests pass (run {{test_cmd}})
+      5. No obvious incomplete work
+      6. Typecheck passes
 
-      {{changes}}
+      ## Visual Verification (Frontend Changes)
+      Has frontend changes: {{has_frontend_changes}}
 
+      If {{has_frontend_changes}} is 'true', you MUST also perform visual verification:
+      1. Use the agent-browser skill to visually inspect the changed UI
+      2. Open the changed HTML file directly (file:// URL) or spin up a local dev server if the project requires one
+      3. Take a screenshot of the rendered page
+      4. Visually confirm:
+         - Layout renders correctly (no broken/overlapping elements)
+         - Styling is applied as expected (colors, fonts, spacing)
+         - All visible elements from the story are present and properly positioned
+         - No missing images, icons, or visual assets
+         - Text is readable and not clipped or hidden
+      5. A visual PASS means: the page renders without broken layout, missing elements, or overlapping content
+      6. A visual FAIL means: broken layout, missing/invisible elements, overlapping or misaligned content, unstyled raw HTML, or obvious rendering errors
+      7. Include your visual findings in VERIFIED output
 
-      Inspect the diff and run focused checks. Report any unmet acceptance
-      criterion with actionable findings.
-    maxRetries: 1
-    onFail:
-      maxRetries: 2
-      onExhausted:
-        escalateTo: human
-    output: result
-    requireChecks: true
-    requireVisuals: true
+      If {{has_frontend_changes}} is 'false', skip visual verification entirely.
+
+      Reply with:
+      STATUS: done
+      VERIFIED: What you confirmed
+
+      Or if incomplete:
+      STATUS: retry
+      ISSUES:
+      - What's missing or incomplete
+    expects: "STATUS: done"
+    on_fail:
+      retry_step: implement
+      max_retries: 2
+      on_exhausted:
+        escalate_to: human
+
   - id: test
     agent: tester
-    type: single
-    input: >
-      Test the complete implementation for this task:
+    input: |
+      Integration and E2E testing of the implementation.
 
-
+      TASK:
       {{task}}
 
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+      CHANGES: {{changes}}
+      BUILD_CMD: {{build_cmd}}
+      TEST_CMD: {{test_cmd}}
 
-      Run the relevant repository checks and report failures with reproduction
-      details.
+      PROGRESS LOG:
+      {{progress}}
 
+      Your job (integration/E2E testing — unit tests were already written per-story):
+      1. Run the full test suite ({{test_cmd}}) to confirm everything passes together
+      2. Look for integration issues between stories
+      3. If this is a UI feature, use agent-browser to test it end-to-end
+      4. Check cross-cutting concerns: error handling, edge cases across features
+      5. Verify the overall feature works as a cohesive whole
 
-      Check every accepted criterion against the complete candidate and cite
-      actual successful shell commands in checks. Use the recorded test_cmd and
-      build_cmd when relevant. Run browser E2E when the diff changes frontend
-      behavior.
-    maxRetries: 1
-    onFail:
-      retryStep: implement
-      maxRetries: 2
-      onExhausted:
-        escalateTo: human
-    output: result
-    requireChecks: true
-    requireVisuals: true
+      Reply with:
+      STATUS: done
+      RESULTS: What you tested and the outcomes
+
+      Or if issues found:
+      STATUS: retry
+      FAILURES:
+      - Specific test failures or bugs found
+    expects: "STATUS: done"
+    on_fail:
+      retry_step: implement
+      max_retries: 2
+      on_exhausted:
+        escalate_to: human
+
   - id: pr
-    agent: pr
-    type: single
-    output: result
-    effect: pull-request
-    maxRetries: 0
-    input: >-
-      Deliver the checked candidate for {{task}} from {{workspace}} on
-      {{branch}}.
+    agent: developer
+    input: |
+      Create a pull request for your changes.
 
-      Accepted results: {{results}}
+      TASK:
+      {{task}}
 
-      Inspect the existing remote branch and PR before any push or creation.
-      Update the existing PR for this branch when present. Do not merge or force
-      push. Return pr_url and pr_head in named values.
-    onFail:
-      maxRetries: 0
-      onExhausted:
-        escalateTo: human
+      REPO: {{repo}}
+      BRANCH: {{branch}}
+      CHANGES: {{changes}}
+      RESULTS: {{results}}
+
+      PROGRESS LOG:
+      {{progress}}
+
+      Create a PR with:
+      - Clear title summarizing the change
+      - Description explaining what and why
+      - Reference to what was tested
+
+      Use: gh pr create
+
+      Reply with:
+      STATUS: done
+      PR: URL to the pull request
+    expects: "STATUS: done"
+    on_fail:
+      escalate_to: human
+
   - id: review
     agent: reviewer
-    type: single
-    input: >
-      Review the complete implementation for this task:
+    input: |
+      Review the pull request.
 
+      PR: {{pr}}
+      TASK: {{task}}
+      CHANGES: {{changes}}
 
-      {{task}}
+      PROGRESS LOG:
+      {{progress}}
 
+      Review for:
+      - Code quality and clarity
+      - Potential bugs or issues
+      - Test coverage
+      - Follows project conventions
 
-      Check correctness, regressions, missing tests, and scope. Report any
-      blocking finding with a concrete location and impact.
+      Use: gh pr view, gh pr diff to read the PR.
 
+      IMPORTANT: Post your review to the PR on GitHub using:
+      - If approving: gh pr review <number> --approve --body "your review summary"
+      - If requesting changes: gh pr review <number> --request-changes --body "your feedback"
 
-      Inspect the current PR head and its latest reviews. If a distinct reviewer
-      already approved this head, verify that approval and return its pr_url and
-      review_id after your required checks pass. Otherwise compare gh api user
-      with the PR author; equal identities require an independent human approval
-      or a distinct authenticated reviewer before proceeding. Publish approval
-      only when all required checks and visual review pass. If changes are
-      required, return passed=false with actionable issues. Return pr_url and
-      review_id in named values.
-    maxRetries: 1
-    onFail:
-      retryStep: implement
-      maxRetries: 2
-      onExhausted:
-        escalateTo: human
-    output: result
-    requireChecks: true
-    effect: github-review
-    requireVisuals: true
-workspace: git
-allowEmptyPlan: false
+      ## Visual Review (Frontend Changes)
+      Has frontend changes: {{has_frontend_changes}}
+
+      If {{has_frontend_changes}} is 'true', you MUST also perform a visual design review:
+      1. Check out the branch: git checkout {{branch}}
+      2. Use the agent-browser skill to open the changed page (file:// URL or local dev server)
+      3. Take a screenshot of the rendered page
+      4. Evaluate visual polish and design quality:
+         - Does the UI look polished and intentional, not rough or placeholder-quality?
+         - Are colors, typography, and spacing consistent with the rest of the project?
+         - Is the layout visually balanced and well-aligned?
+         - Do interactive elements look clickable/tappable?
+         - Is the overall design cohesive — does it feel like part of the same product?
+      5. This is a DESIGN review, not a structural check — the verify step already confirmed elements render. You are checking whether the result looks GOOD.
+      6. Include your visual design assessment in the review output
+
+      If {{has_frontend_changes}} is 'false', skip visual review entirely.
+
+      If changes needed, add comments to the PR explaining what needs to change.
+
+      Reply with:
+      STATUS: done
+      DECISION: approved
+
+      Or if changes needed:
+      STATUS: retry
+      DECISION: changes_requested
+      FEEDBACK:
+      - What needs to change
+    expects: "STATUS: done"
+    on_fail:
+      retry_step: implement
+      max_retries: 3
+      on_exhausted:
+        escalate_to: human

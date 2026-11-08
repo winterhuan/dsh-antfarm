@@ -78,8 +78,6 @@ function registerSidebar(ctx: Context, config: Config): void {
     async copy(draft, newId, owner) { const result = await remote.copyWorkflow(draft, newId, owner, new AbortController().signal); if (!result.ok) throw result.error; return result.value },
     async setEnabled(draft, enabled, owner) { const result = await remote.setWorkflowEnabled(draft, enabled, owner, new AbortController().signal); if (!result.ok) throw result.error },
     async events(runId, owner, after) { const result = await remote.events(runId, owner, after, new AbortController().signal); if (!result.ok) throw result.error; return result.value },
-    async artifact(runId, owner, digest) { const result = await remote.artifact(runId, owner, digest, new AbortController().signal); if (!result.ok) throw result.error; return result.value },
-    async artifactContent(runId, owner, digest, signal) { const result = await remote.artifactContent(runId, owner, digest, signal); if (!result.ok) throw result.error; return result.value },
     async health(owner) { const result = await remote.health(owner, new AbortController().signal); if (!result.ok) throw result.error; return result.value },
     async healthHistory(owner) { const result = await remote.healthHistory(owner, new AbortController().signal); if (!result.ok) throw result.error; return result.value },
     async ensureExecution(owner) { const result = await remote.ensureExecution(owner, new AbortController().signal); if (!result.ok) throw result.error; return result.value },

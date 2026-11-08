@@ -17,7 +17,6 @@ export interface AntfarmResumeRequest {
   readonly runId: string
   readonly parent: Agent
   readonly guidance?: string
-  readonly retryGrant?: number
   readonly revision?: number
   readonly signal?: AbortSignal
 }

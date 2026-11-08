@@ -1,10 +1,9 @@
 import { Context, Service } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import type { SessionId } from '@deepseek-ai/dsh-session';
+import { type SessionId } from '@deepseek-ai/dsh-session';
 import z from '@deepseek-ai/schemastery';
-import { RunJournal } from '../persistence/journal.ts';
 import { type WorkflowDraft } from '../workflow/manager.ts';
-import type { AntfarmArtifactContent, AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmRunSummary, AntfarmStatus } from '../types.ts';
+import type { AntfarmEventSummary, AntfarmHealthHistory, AntfarmHealthReport, AntfarmRunSummary, AntfarmStatus } from '../types.ts';
 import type { AntfarmResumeRequest, AntfarmRunReceipt, AntfarmStartRequest } from './types.ts';
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -16,7 +15,7 @@ declare module '@deepseek-ai/dsh-jobs' {
         antfarm: 'antfarm';
     }
 }
-/** Owner-scoped admission and lifecycle around durable workflow drivers. */
+/** Owns native execution; workflow state is read directly from SQLite. */
 export declare class AntfarmRuntime extends Service {
     private readonly config;
     static inject: string[];
@@ -24,95 +23,70 @@ export declare class AntfarmRuntime extends Service {
         journalRoot: z<string, string, "defined">;
         workflowDirs: z<string[], string[], "defined">;
         defaultWorkflowId: z<string, string, "volatile-defined">;
-        worktreeDirectory: z<string, string, "defined">;
-        defaultStepTimeoutSeconds: z<number, number, "volatile-defined">;
         subagentProvider: z<string, string, "defined">;
         maxActiveRunsPerOwner: z<number, number, "defined">;
         maxActiveRuns: z<number, number, "defined">;
-        maxAttempts: z<number, number, "volatile-defined">;
-        maxStories: z<number, number, "volatile-defined">;
-        maxStoryRetries: z<number, number, "volatile-defined">;
-        maxSummaryChars: z<number, number, "volatile-defined">;
-        cleanupCompletedWorktrees: z<boolean, boolean, "volatile-defined">;
-        cleanupCancelledWorktrees: z<boolean, boolean, "volatile-defined">;
+        dispatchIntervalMs: z<number, number, "defined">;
+        gitTimeoutMs: z<number, number, "defined">;
+        subprocessGraceMs: z<number, number, "defined">;
+        webhookTimeoutMs: z<number, number, "defined">;
+        webhookTokenEnv: z<string, string, "plain">;
         healthEnabled: z<boolean, boolean, "volatile-defined">;
         healthIntervalMs: z<number, number, "volatile-defined">;
-        notifyOwner: z<boolean, boolean, "volatile-defined">;
-        webhookUrl: z<string, string, "volatile-defined">;
-        webhookTokenEnv: z<string, string, "volatile-defined">;
-        githubReviewerTokenEnv: z<string, string, "volatile-defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
         journalRoot: z<string, string, "defined">;
         workflowDirs: z<string[], string[], "defined">;
         defaultWorkflowId: z<string, string, "volatile-defined">;
-        worktreeDirectory: z<string, string, "defined">;
-        defaultStepTimeoutSeconds: z<number, number, "volatile-defined">;
         subagentProvider: z<string, string, "defined">;
         maxActiveRunsPerOwner: z<number, number, "defined">;
         maxActiveRuns: z<number, number, "defined">;
-        maxAttempts: z<number, number, "volatile-defined">;
-        maxStories: z<number, number, "volatile-defined">;
-        maxStoryRetries: z<number, number, "volatile-defined">;
-        maxSummaryChars: z<number, number, "volatile-defined">;
-        cleanupCompletedWorktrees: z<boolean, boolean, "volatile-defined">;
-        cleanupCancelledWorktrees: z<boolean, boolean, "volatile-defined">;
+        dispatchIntervalMs: z<number, number, "defined">;
+        gitTimeoutMs: z<number, number, "defined">;
+        subprocessGraceMs: z<number, number, "defined">;
+        webhookTimeoutMs: z<number, number, "defined">;
+        webhookTokenEnv: z<string, string, "plain">;
         healthEnabled: z<boolean, boolean, "volatile-defined">;
         healthIntervalMs: z<number, number, "volatile-defined">;
-        notifyOwner: z<boolean, boolean, "volatile-defined">;
-        webhookUrl: z<string, string, "volatile-defined">;
-        webhookTokenEnv: z<string, string, "volatile-defined">;
-        githubReviewerTokenEnv: z<string, string, "volatile-defined">;
     }>>, "plain">;
-    private readonly admissions;
+    private database;
+    private readonly legacy;
+    private readonly notifications;
     private readonly operations;
-    private closing;
-    private storage;
-    private nextNumber;
-    private readonly evidence;
     private readonly capacity;
     private readonly owners;
+    private readonly agents;
     private readonly workflows;
-    private healthTimer;
-    private healthWork;
-    private readonly healthChecks;
-    private readonly healthController;
+    private closing;
+    private timer;
+    private readonly history;
     constructor(ctx: Context, config: Config);
-    /** Acquire Host ownership, rebuild projections, and recover safe persisted work. */
+    /** Open original-format SQLite and resume safe queued work through its owner. */
     [Service.init](): Promise<void>;
     private scheduleHealth;
     /**
-     * Inspect and persist health diagnostics without accepting work.
-     * @param owner - Authorized Session scope, or internal Host scope.
-     * @returns Persisted health facts without inferring acceptance.
+     * Diagnose inactive native execution without approving or replaying work.
+     * @param owner - Optional owner filter.
+     * @returns Native execution diagnostics.
      */
     checkHealth(owner?: SessionId): Promise<AntfarmHealthReport>;
-    private inspectHealth;
     /**
-     * Read bounded health history and current monitoring settings.
-     * @param owner - Explicit authorized scope.
-     * @returns Retained checks and current native settings.
+     * Read Session-authorized diagnostic history.
+     * @param owner - Authorized owner.
+     * @returns Recent diagnostic history.
      */
     healthHistory(owner: SessionId): Promise<AntfarmHealthHistory>;
     /**
-     * Dispatch safe inactive work through the existing executor.
-     * @param owner - Explicit authorization scope.
-     * @returns Runs dispatched by the existing sole executor.
+     * Dispatch safe inactive work through the original native owner.
+     * @param owner - Original owner.
+     * @returns Runs dispatched without changing completed work.
      */
     ensureExecution(owner: SessionId): Promise<string[]>;
-    /**
-     * Rebuild the disposable index from disk after startup or explicit repair.
-     * @returns Supported journals available for recovery.
-     */
-    rebuildIndex(): Promise<RunJournal[]>;
-    private policy;
-    private indexFailure;
-    private project;
-    /** Last derived-index error; business evidence remains authoritative. */
-    get indexError(): string | undefined;
+    /** SQLite is authoritative and requires no journal index rebuild. */
+    get indexError(): undefined;
     /**
      * Restore the original root Session authority without a model turn.
      * @param owner - Original root Session.
-     * @returns Native authority without a model turn.
+     * @returns Its live execution authority.
      */
     resolveOwner(owner: SessionId): Promise<Agent>;
     private observedWorkflowRoots;
@@ -156,10 +130,9 @@ export declare class AntfarmRuntime extends Service {
      * @param parent - Authorized root.
      * @param directory - Original workflow.
      * @param sourceRoot - Shared-resource root.
-     * @param workspace - Git or owned file workspace for the imported workflow.
      * @returns Installed project copy.
      */
-    importWorkflow(parent: Agent, directory: string, sourceRoot: string, workspace?: 'git' | 'files'): Promise<WorkflowDraft>;
+    importWorkflow(parent: Agent, directory: string, sourceRoot: string): Promise<WorkflowDraft>;
     /**
      * Remove a matching writable override after checking active dependencies.
      * @param parent - Authorized root.
@@ -186,106 +159,77 @@ export declare class AntfarmRuntime extends Service {
      */
     copyWorkflow(parent: Agent, source: WorkflowDraft, newId: string): Promise<WorkflowDraft>;
     private live;
-    private admit;
-    private reserve;
-    private release;
-    private provider;
+    private owned;
     /**
-     * Start in an owned worktree after reserving owner capacity and persisting identity.
-     * @param request - Task and exact live initiating Agent.
-     * @returns Receipt after journal and native job acceptance.
+     * Persist original workflow admission before accepting native execution.
+     * @param request - Owner and original workflow task.
+     * @returns Durable admission receipt.
      */
     start(request: AntfarmStartRequest): Promise<AntfarmRunReceipt>;
-    private startNew;
     /**
-     * Resume from the saved workflow; uncertain attempts require explicit reconciliation guidance.
-     * @param request - Original run, live owner and any reconciliation guidance.
-     * @returns Receipt for the resumed native job.
+     * Resume a failed or reconciled interrupted run through its original owner.
+     * @param request - Original owner and recovery guidance.
+     * @returns Resumed run receipt.
      */
     resume(request: AntfarmResumeRequest): Promise<AntfarmRunReceipt>;
-    private interrupted;
+    private receipt;
     private launch;
-    /**
-     * Wait for this Run's whole execution interval and final workspace disposition.
-     * @param runId - Owned Run, including a queued execution.
-     * @param owner - Session authorizing the wait.
-     * @param signal - Optional caller wait cancellation; omission waits until settlement.
-     * @returns Completed, failed, cancelled, blocked or interrupted business state.
-     */
-    wait(runId: string, owner: SessionId, signal?: AbortSignal): Promise<AntfarmStatus>;
     private summary;
-    private owned;
-    private worktree;
     /**
-     * Read up to fifty recent runs attributed to the selected session, including terminal evidence.
-     * @param owner - Session authorizing the listing.
-     * @returns Recent owner-attributed run summaries.
+     * Combine original SQL runs and attributable read-only historical snapshots.
+     * @param owner - Selected Session.
+     * @returns Its original SQLite runs.
      */
     list(owner: SessionId): Promise<AntfarmRunSummary[]>;
     /**
-     * Read a bounded page of Runs authorized by explicit Session resources.
-     * @param owners - Explicit authorized resources.
-     * @param offset - Number of newer rows already read.
-     * @returns Bounded indexed page.
+     * Read bounded owner-authorized run summaries.
+     * @param owners - Authorized Sessions.
+     * @param offset - Page offset.
+     * @returns Fifty runs.
      */
     page(owners: readonly SessionId[], offset: number): Promise<AntfarmRunSummary[]>;
     /**
-     * Inspect accepted context and durable native child identities under session ownership.
-     * @param runId - Durable run identity.
-     * @param owner - Session authorizing inspection.
-     * @returns Accepted state and any uncertain child attempt.
+     * Read original business rows and native attempt addresses.
+     * @param runId - Run identity.
+     * @param owner - Authorized owner.
+     * @returns Business state and native attempts.
      */
     status(runId: string, owner: SessionId): Promise<AntfarmStatus>;
     /**
-     * Resolve a unique owned Run by id, number, prefix or task text.
-     * @param query - Exact id, stable number, id prefix or task text.
+     * Wait for the current executor without transferring Run cancellation to the caller.
+     * @param runId - Run identity.
      * @param owner - Authorized owner.
-     * @returns Unique run id.
+     * @param signal - Caller wait.
+     * @returns Settled state.
+     */
+    wait(runId: string, owner: SessionId, signal?: AbortSignal): Promise<AntfarmStatus>;
+    /**
+     * Resolve an owner-scoped exact id, number or unique textual query.
+     * @param query - Run number, task or id prefix.
+     * @param owner - Authorized owner.
+     * @returns Unique match.
      */
     find(query: string, owner: SessionId): Promise<string>;
     /**
-     * Read bounded committed events after an exclusive sequence cursor.
-     * @param runId - Owned Run.
-     * @param owner - Authorization resource.
-     * @param after - Exclusive cursor.
-     * @returns Up to fifty bounded facts.
+     * Read complete observation events without using them as business state.
+     * @param runId - Run identity.
+     * @param owner - Authorized owner.
+     * @param after - Event offset.
+     * @returns Observation log page.
      */
     events(runId: string, owner: SessionId, after: number): Promise<AntfarmEventSummary[]>;
+    private revision;
     /**
-     * Read a verified UTF-8 preview of a retained artifact.
-     * @param runId - Owned Run.
-     * @param owner - Authorization resource.
-     * @param sha256 - Retained artifact.
-     * @returns Bounded UTF-8 output text.
-     */
-    artifact(runId: string, owner: SessionId, sha256: string): Promise<string>;
-    /**
-     * Read digest-verified retained bytes for download.
-     * @param runId - Owned Run.
-     * @param owner - Authorization resource.
-     * @param sha256 - Retained digest.
-     * @returns Verified output up to sixteen MiB.
-     */
-    artifactContent(runId: string, owner: SessionId, sha256: string): Promise<AntfarmArtifactContent>;
-    /**
-     * Cancel and await the active driver, or settle inactive owned evidence under a writer lease.
-     * @param runId - Run to settle.
-     * @param owner - Session authorizing cancellation.
-     * @param reason - Diagnostic recorded in durable evidence.
-     * @param revision - Optional expected journal revision; stale operations are refused.
-     * @returns Summary after cancellation and active teardown.
+     * Stop the exact native child and wait for disposal before acknowledging cancellation.
+     * @param runId - Owned run.
+     * @param owner - Root Session.
+     * @param reason - User cancellation reason.
+     * @param revision - Expected revision.
+     * @returns Cancelled state after child exit.
      */
     cancel(runId: string, owner: SessionId, reason?: string, revision?: number): Promise<AntfarmRunSummary>;
-    /**
-     * Remove only an inactive, identity-validated, clean worktree; retain its branch.
-     * @param runId - Settled run whose workspace was reviewed.
-     * @param owner - Session authorizing cleanup.
-     * @param revision - Optional expected journal revision; stale operations are refused.
-     * @returns Updated workspace disposition and retention reason.
-     */
-    cleanup(runId: string, owner: SessionId, revision?: number): Promise<AntfarmRunSummary>;
 }
-/** Parsed Host settings; volatile defaults are captured once per Run. */
+/** Configuration of the SQLite runtime and native scheduling. */
 export type Config = ReturnType<typeof AntfarmRuntime.Config>;
 export type { AntfarmResumeRequest, AntfarmRunReceipt, AntfarmStartRequest } from './types.ts';
 export default AntfarmRuntime;
