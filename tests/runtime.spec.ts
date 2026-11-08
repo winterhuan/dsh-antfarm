@@ -17,9 +17,9 @@ vi.mock('../src/workspace/git.ts', () => ({
   validateWorktree: async () => {}, cleanupWorktree: async () => ({ disposition: 'cleaned' }),
 }))
 vi.mock('../src/runtime/orchestrator.ts', () => ({
-  runWorkflow: async (_dependencies: unknown, spec: { journal: RunJournal; signal: AbortSignal }): Promise<JobOutcome> => {
+  runWorkflow: async (_dependencies: unknown, spec: { journal: RunJournal; signal: AbortSignal; interrupted(): boolean }): Promise<JobOutcome> => {
     await gates.driver?.()
-    if (spec.signal.aborted) await spec.journal.append({ type: 'run-end', data: { status: 'cancelled', reason: 'cancelled' } })
+    if (spec.signal.aborted) await spec.journal.append(spec.interrupted() ? { type: 'run-interrupt', data: { reason: 'owner unloading' } } : { type: 'run-end', data: { status: 'cancelled', reason: 'cancelled' } })
     return { status: spec.signal.aborted ? 'killed' : 'completed', detail: '' }
   },
 }))
@@ -27,22 +27,23 @@ function deferred() { let resolve!: () => void; return { promise: new Promise<vo
 async function fixture(rootPath?: string) {
   const temporary = rootPath ?? await realpath(await mkdtemp(join(tmpdir(), 'antfarm-runtime-')))
   const ctx = new Context()
-  const owner = { id: SessionId('parent'), session: Session.create(SessionId('parent')) } as Agent
+  const owner = { id: SessionId('parent'), session: Session.create(SessionId('parent')), ctx } as Agent
   let current: Agent | undefined = owner
   const jobs: JobSpec[] = []
+  const handles: ReturnType<JobSpec['run']>[] = []
   const outcomes: Promise<JobOutcome>[] = []
   ctx.provide('agents', { get: () => current })
   ctx.provide('sessions', { flush: async () => true })
   ctx.provide('workingDirectory', { ensure: async () => temporary })
   ctx.provide('agentPresets', { resolve: async (id: string) => ({ id }) })
-  ctx.provide('jobs', { start: (spec: JobSpec) => { jobs.push(spec); outcomes.push(spec.run({ append() {} }).done); return JobId(`antfarm-${jobs.length}`) } })
+  ctx.provide('jobs', { start: (spec: JobSpec) => { jobs.push(spec); const handle = spec.run({ append() {} }); handles.push(handle); outcomes.push(handle.done); return JobId(`antfarm-${jobs.length}`) } })
   ctx.provide('subagents', { getProvider: () => ({ inheritsParentContext: false, prepareContinuable() {}, capabilities: { agentPreset: true, outputSchema: true, agentOptions: true } }) })
   ctx.provide('subprocess', {})
   const config = Runtime.Config({ journalRoot: join(temporary, 'runs'), maxActiveRunsPerOwner: 1 })
   const fiber = ctx.plugin(Runtime, { journalRoot: config.journalRoot, maxActiveRunsPerOwner: 1 })
   await fiber
   onTestFinished(async () => { gates.prepare = undefined; gates.driver = undefined; await fiber.dispose(); await Promise.all(outcomes); if (rootPath === undefined) await rm(temporary, { recursive: true, force: true }) })
-  return { temporary, ctx, owner, jobs, outcomes, fiber, runtime: ctx.antfarm, config, replaceParent() { current = { id: owner.id } as Agent } }
+  return { temporary, ctx, owner, jobs, handles, outcomes, fiber, runtime: ctx.antfarm, config, replaceParent() { current = { id: owner.id } as Agent } }
 }
 async function saved(test: Awaited<ReturnType<typeof fixture>>, runId = 'af-saved') {
   const workflow = await loadWorkflow('smoke', [join(import.meta.dirname, '..', 'workflows')])
@@ -125,5 +126,24 @@ describe('runtime admission and durable ownership', () => {
     gate.resolve(); expect((await cancelling).status).toBe('cancelled')
     await test.fiber.dispose()
     await expect(test.runtime.start({ task: 'work', parent: test.owner })).rejects.toThrow('current live')
+  })
+
+  it('preserves queued work when native job cleanup precedes owner disposal notification', async () => {
+    const test = await fixture(); const gate = deferred(); gates.driver = () => gate.promise
+    const ownerFiber = test.ctx.plugin(() => {})
+    await ownerFiber
+    const owner = { ...test.owner, ctx: ownerFiber.ctx } as Agent
+    test.ctx.agents.get = () => owner
+    const first = await test.runtime.start({ task: 'active', parent: owner, workflowId: 'smoke' })
+    const queued = await test.runtime.start({ task: 'queued', parent: owner, workflowId: 'smoke' })
+    owner.ctx.effect(() => async () => {
+      for (const handle of test.handles) handle.cancel('owner disposed')
+      gate.resolve()
+      await Promise.all(test.outcomes)
+    })
+    await ownerFiber.dispose()
+    expect((await test.runtime.status(first.runId, owner.id)).summary.status).toBe('interrupted')
+    expect((await test.runtime.status(queued.runId, owner.id)).summary.status).toBe('interrupted')
+    expect((await RunJournal.open(test.config.journalRoot, queued.runId)).state.openAttempt).toBeNull()
   })
 })

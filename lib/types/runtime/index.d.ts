@@ -203,6 +203,7 @@ export declare class AntfarmRuntime extends Service {
      * @returns Receipt for the resumed native job.
      */
     resume(request: AntfarmResumeRequest): Promise<AntfarmRunReceipt>;
+    private interrupted;
     private launch;
     /**
      * Wait for this Run's whole execution interval and final workspace disposition.

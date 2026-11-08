@@ -503,7 +503,7 @@ export class AntfarmRuntime extends Service {
       this.live(request.parent, signal)
       return this.launch(runId, operation, request.parent, worktree)
     } catch (error) {
-      if (operation.journal !== undefined) await operation.journal.append({ type: 'run-end', data: { status: signal.aborted ? 'cancelled' : 'failed', reason: String(error) } }).catch(() => {})
+      if (operation.journal !== undefined) await operation.journal.append(this.interrupted(operation, request.parent) ? { type: 'run-interrupt', data: { reason: String(error) } } : { type: 'run-end', data: { status: signal.aborted ? 'cancelled' : 'failed', reason: String(error) } }).catch(() => {})
       this.release(runId, operation)
       throw error
     }
@@ -534,6 +534,13 @@ export class AntfarmRuntime extends Service {
       this.release(request.runId, operation)
       throw error
     }
+  }
+
+  private interrupted(operation: Operation, parent: Agent): boolean {
+    // Native owner-job cleanup precedes agent/disposed; the unloading scope is authoritative during that interval.
+    if (operation.interrupted === true || this.closing) return true
+    try { parent.ctx.fiber.assertActive(); this.ctx.fiber.assertActive(); return false }
+    catch { return true }
   }
 
   private launch(runId: string, operation: Operation, parent: Agent, worktree: WorktreeSpec | null): AntfarmRunReceipt {
@@ -569,10 +576,10 @@ export class AntfarmRuntime extends Service {
         }, {
           journal, parent, worktree, signal: operation.controller.signal,
           ...policy,
-          interrupted: () => operation.interrupted === true, onChange: () => this.project(journal),
+          interrupted: () => this.interrupted(operation, parent), onChange: () => this.project(journal),
         })
       } catch (error) {
-        await journal.append(operation.interrupted ? { type: 'run-interrupt', data: { reason: String(error) } } : { type: 'run-end', data: { status: operation.controller.signal.aborted ? 'cancelled' : 'failed', reason: String(error) } })
+        await journal.append(this.interrupted(operation, parent) ? { type: 'run-interrupt', data: { reason: String(error) } } : { type: 'run-end', data: { status: operation.controller.signal.aborted ? 'cancelled' : 'failed', reason: String(error) } })
         return { status: operation.controller.signal.aborted ? 'killed' as const : 'failed' as const, detail: String(error) }
       } finally {
         if (this.config.notifyOwner.get() && ['completed', 'failed', 'cancelled', 'blocked', 'interrupted'].includes(journal.state.status)) {
