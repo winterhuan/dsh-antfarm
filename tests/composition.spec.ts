@@ -13,7 +13,8 @@ async function runComposition(args: string[] = []) {
   try {
     // Plain Node loads the plugin's built exports; its deadline leaves time for child exit and cleanup.
     return await new Promise<{ error: ExecFileException | null; stdout: string; stderr: string }>(resolve => {
-      execFile(process.execPath, [fixture, temporary, ...args], {
+      // Node 22 marks built-in SQLite experimental; application diagnostics still reach stderr.
+      execFile(process.execPath, ['--disable-warning=ExperimentalWarning', fixture, temporary, ...args], {
         cwd: repository, timeout: 30000, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024,
       }, (error, stdout, stderr) => resolve({ error, stdout, stderr }))
     })

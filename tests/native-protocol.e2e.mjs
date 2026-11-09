@@ -1,4 +1,4 @@
-/** Run with a built checkout and DSH 0.2.2-rc.1 on PATH; only the model is deterministic. */
+/** Run with DSH 0.2.2-rc.1 on PATH; an optional package spec tests a remote release instead of the built checkout. */
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -19,7 +19,7 @@ const dsh = (...args) => execute('dsh', args, { cwd: project, env, timeout: 6000
 try {
   await mkdir(project)
   await dsh('--profile', 'antfarm-test', '--from-default-profile', 'headless', '--dump-config')
-  await dsh('plugin', '--profile', 'antfarm-test', 'add', `link:${repository}`)
+  await dsh('plugin', '--profile', 'antfarm-test', 'add', process.argv[2] ?? `link:${repository}`)
   const parent = join(temporary, 'parent.mjs')
   await writeFile(parent, `export const inject = ['agentPresets'];
 export function apply(ctx) {
@@ -33,8 +33,8 @@ export function apply(ctx) {
   await writeFile(overlay, JSON.stringify([
     { id: 'agent-default-model', config: { provider: 'antfarm-fixture', model: 'antfarm-fixture' } },
     { insert: [
-      { id: 'agent-preset-registry', name: fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-agent-preset-registry')), config: { default: 'standard' } },
-      { id: 'preset-standard', name: fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-agent-preset')), config: { id: 'standard', plugins: [] } },
+      { id: 'agent-preset-registry', name: '@deepseek-ai/dsh-agent-preset-registry', config: { default: 'standard' } },
+      { id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset', config: { id: 'standard', plugins: [] } },
       { id: 'parent-preset', name: parent },
       { id: 'model-fixture', name: fileURLToPath(new URL('./fixtures/keyless-model.mjs', import.meta.url)), config: {
         project, protocolRegression: true, telemetryPath,
