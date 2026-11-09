@@ -1,0 +1,11 @@
+{
+  "run": "completed",
+  "attempts": 11,
+  "failedAttempts": 2,
+  "nativeBashCalls": 11,
+  "rootTools": ["antfarm_run", "antfarm_resume"],
+  "workerOrder": ["planner", "planner", "setup", "developer", "verifier", "developer", "verifier", "tester", "developer", "reviewer", "reviewer"],
+  "learningRetained": true,
+  "recoveryGuidanceDelivered": true,
+  "missingContext": false
+}

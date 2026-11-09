@@ -37,6 +37,8 @@ DSH requires reconciliation before replaying crash-open attempts, instead of inf
 
 Original personas still reference OpenClaw worker completion commands. Native task input directs agents to return the original final text and lets the Host record completion. Optional skills resolve through DSH providers. Webhook credentials use native environment references rather than URL fragments. Single-step failure directives remain metadata; the original worker completion path does not enforce them as a general retry graph.
 
+The native adapter distinguishes business success, verification rejection and execution failure: replies require `STATUS: done|retry|failed`, and success also requires the `expects` text. Single-step rejection stops the run, story rejection retries the story, and execution failure uses the existing budget. Recovery guidance enters the next input. Persona variables resolve fully; unchanged templates retain and load local learning, while conflicting template/local changes stop the attempt.
+
 A worker’s successful reply is its reported result. The adapter does not add independent candidate-bound checks, GitHub review approval, immutable artifact snapshots, research/writing templates, additional retry grants or per-run worktree cleanup. Custom original-format workflows remain supported.
 
 <a id="acceptance-scope"></a>
@@ -45,6 +47,8 @@ A worker’s successful reply is its reported result. The adapter does not add i
 Isolated Web acceptance completes feature-dev (7 attempts), bug-fix (6 attempts) and security-audit (7 attempts). SQLite confirms three completed runs and twenty distinct native Session IDs, each with real Bash execution. Browser inspection covers the board, step outputs and child navigation; model outcomes and PR URLs are deterministic fixture data. A further saved project override completes after restart, writes and archives native progress, detects a real frontend Git change, and omits native gateway/cron equivalents from child tools.
 
 The implementation checks cover macOS Host/Client types, clean builds, package composition, original SQL/identity/lifecycle behavior, client queries, historical preservation and webhook teardown. Native Web acceptance uses an isolated DSH `0.2.2-rc.1` profile and a deterministic model adapter; original step outcomes and native child/tool execution are checked separately from CLI exit.
+
+With DSH `0.2.2-rc.1` installed and the plugin built, run `node tests/native-protocol.e2e.mjs` for isolated Headless protocol acceptance. It composes native presets and a deterministic model in a temporary profile, checks eleven distinct Sessions/Bash calls, execution failure retries, story rejection, explicit recovery after final review rejection, dynamic personas and local learning, and compares a fixed expected result. It removes temporary resources on exit.
 
 Real-model usefulness, live GitHub delivery and Linux/Windows behavior are not established by these deterministic checks. Remote release installation requires separate package/configuration and browser evidence. Previous `0.2.0` release evidence describes that release’s different runtime and does not validate this implementation. DSH has no TUI entry on the pinned version; default Headless lacks the required preset composition.
 

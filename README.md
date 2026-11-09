@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Configure Agents, start tasks and inspect step outputs, stories and native transcripts on the workflow board. Version `0.3.2` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
+Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Configure Agents, start tasks and inspect step outputs, stories and native transcripts on the workflow board. Version `0.3.3` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
 
 ## Table of Contents
 
@@ -34,7 +34,7 @@ Install the immutable release tag into a Web profile:
 If this profile has the unscoped `dsh-antfarm` package, remove that layer with `dsh plugin --profile web remove dsh-antfarm` before installing the scoped release.
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.2
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.3
 ```
 
 For source development:
@@ -82,9 +82,11 @@ The global board shows explicitly authorized Sessions and runs; its team and lau
 
 ### Recovery and retained files
 
+Workers must return an explicit `STATUS: done`, `STATUS: retry` or `STATUS: failed`. Successful replies must contain the step’s `expects` text; missing status, malformed replies and execution failures consume the existing retry budget. A story verifier’s `retry` repeats the current story; other steps stop the run and retain feedback. Correct the problem before resuming that step; recovery does not automatically return to another step. Recovery guidance, previous failure feedback and available build/test baselines enter subsequent attempt inputs.
+
 Resume resets the failed step while retaining completed stories and consumed story retry counts, following original Antfarm. There is no additional retry grant. An interrupted native attempt requires transcript inspection and recovery guidance; the host refuses a second live executor and late results from cancelled attempts. Completed or cancelled runs cannot resume.
 
-Stable agent workspaces live under `$DSH_HOME/antfarm/workspaces/<workflow>/<baseDir>`. Agents receive the owning project directory in their task. Workspaces are retained, and completed loop progress moves into the developer workspace’s `archive/<runId>/progress.txt`. Local edits to managed persona files are preserved and reported when a workflow update conflicts with them; save those edits in the workflow definition before retrying.
+Stable agent workspaces live under `$DSH_HOME/antfarm/workspaces/<workflow>/<baseDir>`. Agents receive the owning project directory in their task. Workspaces are retained, and completed loop progress moves into the developer workspace’s `archive/<runId>/progress.txt`. Local learning in persona files is retained and loaded while its source template is unchanged. An attempt stops only when both the template and local file changed to different contents. Resolve conflicts by saving the merged content in both the workflow definition and workspace file. Workspaces are shared by identity; label project-specific learning with its project.
 
 Historical per-run JSONL data stays under the configured `journalRoot`. Attributable old runs appear as inspection-only records, with available complete-prefix outputs and native Session links. The executor does not migrate, resume or clean them. Shared agent workspaces have no Run cleanup operation.
 
@@ -147,7 +149,7 @@ Full identity, soul and responsibility instructions repeat for each fresh attemp
 
 #### KV Cache effect
 
-The identity section follows the shared native prompt. Its content is stable for the same installed agent, while step input and run-specific progress change. Fresh Sessions do not reuse prior conversation history; provider cache reuse depends on matching request prefixes.
+The identity section follows the shared native prompt. Persona variables resolve from the current claim context, so its content changes with these values and local learning. Fresh Sessions do not reuse prior conversation history; provider cache reuse depends on matching request prefixes.
 
 ## Known Limitations and Deferred Work
 

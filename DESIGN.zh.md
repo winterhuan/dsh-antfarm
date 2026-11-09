@@ -42,6 +42,10 @@ flowchart LR
 
 [Schema](src/persistence/schema.ts)保留原版 `runs`、`steps` 和 `stories` 列。[数据库](src/persistence/database.ts)原子提交准入、领取、输出／上下文、故事验证、重试与恢复状态转换。附加 `dsh_runs` 和 `dsh_attempts` 关联原生 owner 与确切领取者 Session；单独的宿主关联排除并发原生调度器。它们不替代原版业务表。
 
+人设变量使用当前领取上下文解析；缺失变量在创建 Session 前报错。工作区保留模板未变时的本地学习，模板与本地同时变化时拒绝覆盖。恢复指导、上次失败反馈及已有基线随步骤输入传递。
+
+原生回复必须显式声明 `STATUS: done|retry|failed`。只有 `done` 且包含 `expects` 文本才能接受成功。`failed` 和格式错误使用既有失败预算；普通步骤的 `retry` 使运行失败并保留反馈供修正后恢复，Story verifier 继续使用逐故事重试。
+
 Worker 回复使用原版多行 `KEY: value` 文本和 `STORIES_JSON`。循环完成先将故事标为 done，再运行所引用的 verifier；拒绝后重试该故事。恢复保留已消耗的故事重试次数。原生时限在确认子会话退出后计入原版放弃预算；单步尝试在第五次放弃时失败。JSONL 事件是尽力写入的观察记录，仅在事务成功后发出。
 
 宿主保留原版报告结果语义，不将回复转换为独立测试或 GitHub 验收。单步 `on_fail` 声明保留为原版工作流元数据；验证相关的故事重试沿用原版 worker 协议。[PARITY](PARITY.zh.md)记录原生适配差异和证据范围。

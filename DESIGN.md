@@ -42,6 +42,10 @@ flowchart LR
 
 The [schema](src/persistence/schema.ts) preserves the original `runs`, `steps` and `stories` columns. The [database](src/persistence/database.ts) commits admission, claim, output/context, story verification, retry and resume transitions atomically. Additional `dsh_runs` and `dsh_attempts` associate native owners and exact claimant Sessions; a separate host association excludes concurrent native dispatchers. They do not replace the original business tables.
 
+Persona variables resolve against the current claim context; missing variables fail before Session creation. Workspaces retain local learning while the template is unchanged and refuse conflicting template/local updates. Recovery guidance, previous failure feedback and available baselines accompany step input.
+
+Native replies must explicitly declare `STATUS: done|retry|failed`. Success requires `done` and the `expects` text. `failed` and malformed replies use the existing failure budget; a single step’s `retry` fails the run and retains feedback for recovery after correction. Story verifiers retain per-story retries.
+
 Worker replies use original multiline `KEY: value` text and `STORIES_JSON`. Loop completion marks a story done before its referenced verifier runs; rejection retries that story. Resume preserves consumed story retries. Native deadlines feed the original abandonment budget after confirmed child exit; single attempts fail at the fifth abandonment. JSONL events are best-effort observation, emitted only after a successful transaction.
 
 The Host retains original reported-result semantics. It does not convert a reply into independent test or GitHub acceptance. Single-step `on_fail` declarations remain original workflow metadata; verification-specific story retry follows the original worker protocol. [PARITY](PARITY.md) records intentional native differences and evidence limits.

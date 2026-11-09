@@ -1,6 +1,6 @@
 {
   "name": "@winterhuan/dsh-antfarm",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Declarative multi-agent team workflows for DeepSeek Harness",
   "license": "MIT",
   "repository": {

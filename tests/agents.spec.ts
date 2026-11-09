@@ -89,6 +89,32 @@ it('updates installed persona files while preserving conflicting local edits', a
   expect(await readFile(join(cwd, 'SOUL.md'), 'utf8')).toBe('Local user edits')
 })
 
+it('retains learned workspace instructions while the source template is unchanged', async () => {
+  const f = await fixture()
+  const learned = f.agent.files['AGENTS.md'] + '\nProject learning: run pnpm test.\n'
+  await writeFile(join(f.cwd, 'AGENTS.md'), learned)
+  await f.transport.workspace(f.workflow, f.agent)
+  await f.transport.workspace(f.workflow, f.agent)
+  expect(await readFile(join(f.cwd, 'AGENTS.md'), 'utf8')).toBe(learned)
+  const executing = f.transport.execute(f.workflow, f.claim, f.parent, f.cwd, f.home, 'fixture', new AbortController().signal)
+  await f.started.promise
+  f.disposal.resolve()
+  f.child.resolve({ stopReason: 'completed', output: [{ type: 'text', text: 'STATUS: done' }] })
+  await executing
+  expect(f.persona()).toContain('Project learning: run pnpm test.')
+  const changed = { ...f.agent, files: { ...f.agent.files, 'AGENTS.md': 'Changed upstream instructions' } }
+  await expect(f.transport.workspace(f.workflow, changed)).rejects.toThrow('local edits')
+  expect(await readFile(join(f.cwd, 'AGENTS.md'), 'utf8')).toBe(learned)
+})
+
+it('rejects unresolved persona variables before starting a native child', async () => {
+  const f = await fixture()
+  await writeFile(join(f.cwd, 'AGENTS.md'), 'Run {{unknown_command}}')
+  await expect(f.transport.execute(f.workflow, f.claim, f.parent, f.cwd, f.home, 'fixture', new AbortController().signal))
+    .rejects.toThrow('AGENTS.md is missing context: unknown_command')
+  expect(f.persona()).toBe('')
+})
+
 it('waits for child teardown before reporting the original role timeout', async () => {
   const f = await fixture()
   vi.useFakeTimers()

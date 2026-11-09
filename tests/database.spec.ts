@@ -96,6 +96,56 @@ describe('original SQLite worker protocol', () => {
     db.complete(db.claim(run)!.sessionId, output)
     expect(db.claim(run)?.input).toContain('Story S2')
   })
+  it('stops a rejected final review and delivers recovery guidance to the next attempt', async () => {
+    const { db, run, home } = await fixture()
+    for (let i = 0; i < 6; i++) {
+      const claim = db.claim(run)!
+      db.complete(claim.sessionId, claim.step.step_id === 'plan' ? plan(home) : output)
+    }
+    const review = db.claim(run)!
+    db.complete(review.sessionId, 'STATUS: retry\nDECISION: changes_requested\nFEEDBACK: Missing integration coverage')
+    expect(db.run(run).status).toBe('failed')
+    expect(db.steps(run).at(-1)?.status).toBe('failed')
+    expect(db.claim(run)).toBeUndefined()
+    db.resume(run, 'Coverage is fixed; review the existing PR without creating another')
+    const next = db.claim(run)!
+    expect(next.input).toContain('Coverage is fixed; review the existing PR without creating another')
+    expect(next.input).toContain('Missing integration coverage')
+    expect(next.sessionId).not.toBe(review.sessionId)
+    db.complete(next.sessionId, output)
+    expect(db.run(run).status).toBe('completed')
+  })
+  it('does not inherit a successful status when verification omits its own status', async () => {
+    const { db, run, home } = await fixture()
+    db.complete(db.claim(run)!.sessionId, plan(home))
+    db.complete(db.claim(run)!.sessionId, output)
+    db.complete(db.claim(run)!.sessionId, output)
+    const verify = db.claim(run)!
+    expect(() => db.complete(verify.sessionId, 'VERIFIED: I could not run tests')).toThrow('STATUS')
+    expect(db.steps(run).find(step => step.step_id === 'verify')?.status).toBe('running')
+    expect(db.events(run).some(event => event.event === 'story.verified')).toBe(false)
+  })
+  it('requires the configured success text before accepting worker context', async () => {
+    const { db, workflow, home } = await fixture()
+    const custom = { ...workflow, steps: [{ ...workflow.steps[0]!, expects: 'RESULT: accepted' }] }
+    const run = db.start(custom, 'Custom success condition', 'owner', home)
+    const claim = db.claim(run)!
+    expect(() => db.complete(claim.sessionId, 'STATUS: done\nREPO: unaccepted')).toThrow('RESULT: accepted')
+    expect(JSON.parse(db.run(run).context).repo).toBeUndefined()
+    db.complete(claim.sessionId, 'STATUS: done\nRESULT: accepted')
+    expect(db.run(run).status).toBe('completed')
+  })
+  it('retries an explicit worker failure without accepting its context or stories', async () => {
+    const { db, run } = await fixture()
+    for (let i = 0; i < 3; i++) {
+      const claim = db.claim(run)!
+      db.complete(claim.sessionId, 'STATUS: failed\nERROR: dependency unavailable\nREPO: rejected\nSTORIES_JSON: []')
+    }
+    expect(db.run(run).status).toBe('failed')
+    expect(db.steps(run)[0]?.retry_count).toBe(3)
+    expect(JSON.parse(db.run(run).context).repo).toBeUndefined()
+    expect(db.stories(run)).toEqual([])
+  })
   it('rolls back malformed planning output without leaking accepted context', async () => {
     const { db, run } = await fixture()
     const claim = db.claim(run)!

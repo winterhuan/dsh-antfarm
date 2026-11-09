@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。在工作流看板配置 Agent、启动任务并查看步骤输出、故事与原生会话记录。版本 `0.3.2` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
+在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。在工作流看板配置 Agent、启动任务并查看步骤输出、故事与原生会话记录。版本 `0.3.3` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
 
 ## 目录
 
@@ -34,7 +34,7 @@ kind: "package-bundle"
 若此 profile 已安装无 scope 的 `dsh-antfarm`，先使用 `dsh plugin --profile web remove dsh-antfarm` 移除旧安装层，再安装带 scope 的发布包。
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.2
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.3
 ```
 
 源码开发使用：
@@ -82,9 +82,11 @@ dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh
 
 ### 恢复与保留文件
 
+Worker 必须返回明确的 `STATUS: done`、`STATUS: retry` 或 `STATUS: failed`。成功回复须包含步骤的 `expects` 文本；缺失状态、格式错误和执行失败消耗现有重试预算。Story verifier 的 `retry` 重做当前故事；其他步骤的 `retry` 停止运行并保留反馈，修正问题后恢复该步骤，不自动回退到其他步骤。恢复指导、上次失败反馈及已有的构建／测试基线进入后续尝试输入。
+
 恢复按原版 Antfarm 重置失败步骤，保留已完成故事和已消耗的故事重试次数，不使用追加重试授权。中断的原生尝试需要先查看会话记录并提供恢复指导；宿主拒绝第二个活跃执行器和已取消尝试的迟到结果。已完成或已取消的运行不能恢复。
 
-稳定 agent 工作区位于 `$DSH_HOME/antfarm/workspaces/<workflow>/<baseDir>`。Agent 在任务中收到所属项目目录。工作区会保留，完成循环后的进度移入 developer 工作区的 `archive/<runId>/progress.txt`。受管理人设文件的本地修改会保留；若与工作流更新冲突，将明确报错，请先将修改保存到工作流定义再重试。
+稳定 agent 工作区位于 `$DSH_HOME/antfarm/workspaces/<workflow>/<baseDir>`。Agent 在任务中收到所属项目目录。工作区会保留，完成循环后的进度移入 developer 工作区的 `archive/<runId>/progress.txt`。模板未变时保留并加载人设文件的本地学习记录；只有模板和本地文件同时变化且内容不同时才阻止尝试。解决冲突时，将合并后的内容同时保存到工作流定义和工作区文件。工作区按身份共享，项目特有经验须标明项目。
 
 历史的逐 Run JSONL 数据保留在配置的 `journalRoot` 下。可确认归属的旧运行以只读记录展示可用完整前缀中的输出与原生 Session 链接。执行器不迁移、恢复或清理这些记录。共享 agent 工作区不提供逐 Run 清理操作。
 
@@ -147,7 +149,7 @@ dsh plugin --profile antfarm-dev add link:/Users/winter/dsh-creative/plugins/dsh
 
 #### KV Cache 影响
 
-身份段位于共用的原生提示词之后。同一安装 agent 的身份内容保持稳定，步骤输入与运行特定进度会变化。全新 Session 不复用既有对话历史；provider 缓存复用取决于请求前缀是否匹配。
+身份段位于共用的原生提示词之后。人设变量从当前领取上下文解析，身份段会随变量和本地学习记录变化。全新 Session 不复用既有对话历史；provider 缓存复用取决于请求前缀是否匹配。
 
 ## 已知限制与待办
 

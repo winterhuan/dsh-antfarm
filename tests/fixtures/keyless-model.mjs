@@ -6,6 +6,7 @@ export const inject = ['llm']
 export function apply(ctx, config) {
   let rootCalls = 0
   let callId = 0
+  const finishes = new Map()
   class FixtureAdapter extends LlmAdapter {
     async listModels(provider) { return [{ provider, id: 'antfarm-fixture', name: 'Antfarm fixture', contextWindow: 100000, maxTokens: 16000 }] }
     async *stream(options) {
@@ -22,7 +23,12 @@ export function apply(ctx, config) {
       } else if (!agent && config.autoStart !== false && names.includes('antfarm_run') && rootCalls++ === 0) {
         name = 'antfarm_run'; args = { task: 'Verify original native workflow', workflow_id: config.workflowId ?? 'feature-dev' }
       }
-      if (config.telemetryPath) await appendFile(config.telemetryPath, `${JSON.stringify({ agent, names, action: name ?? 'finish', promptBytes: Buffer.byteLength(context), toolSchemaBytes: Buffer.byteLength(JSON.stringify(options.tools ?? [])) })}\n`)
+      if (!agent && config.protocolRegression && rootCalls === 2) {
+        const run = /Antfarm run ([a-f0-9-]+) \[failed\]/.exec(context)
+        if (!run) throw new Error('Expected rejected workflow before recovery')
+        name = 'antfarm_resume'; args = { run_id: run[1], guidance: 'Integration fixed; review the existing PR' }
+      }
+      if (config.telemetryPath) await appendFile(config.telemetryPath, `${JSON.stringify({ agent, names, action: name ?? 'finish', missingContext: context.includes('[missing:'), recoveryGuidance: context.includes('Recovery guidance:'), learnedInstruction: context.includes('Native learned instruction'), promptBytes: Buffer.byteLength(context), toolSchemaBytes: Buffer.byteLength(JSON.stringify(options.tools ?? [])) })}\n`)
       if (name) {
         const id = `fixture-${++callId}`
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }
@@ -32,6 +38,15 @@ export function apply(ctx, config) {
       } else {
         const fields = { STATUS: 'done', REPO: config.project, BRANCH: 'antfarm-fixture', TEST_CMD: 'node --test', BUILD_CMD: 'node --check fixture.js', BASELINE: 'passes', CHANGES: 'Fixture completed native Bash', TESTS: 'passes', VERIFIED: 'passes', RESULTS: 'passes', DECISION: 'approved', PR: 'https://fixture.invalid/pr/1', REGRESSION_TEST: 'native fixture', SEVERITY: 'low', AFFECTED_AREA: 'fixture', REPRODUCTION: 'fixture', PROBLEM_STATEMENT: 'fixture', ROOT_CAUSE: 'fixture', FIX_APPROACH: 'fixture', VERIFY_FEEDBACK: '', VULNERABILITY_COUNT: '1', FINDINGS: 'fixture', FIX_PLAN: 'fixture', CRITICAL_COUNT: '0', HIGH_COUNT: '0', DEFERRED: 'none', AUDIT_AFTER: 'passes' }
         if (agent === 'planner' || agent === 'prioritizer') fields.STORIES_JSON = JSON.stringify([{ id: 'S1', title: 'Native fixture', description: 'Verify fresh native execution', acceptanceCriteria: ['Native Bash exits successfully'] }])
+        if (agent && config.protocolRegression) {
+          const count = finishes.get(agent) ?? 0
+          finishes.set(agent, count + 1)
+          if (agent === 'planner' && count === 0) { fields.STATUS = 'failed'; fields.ERROR = 'Temporary dependency failure' }
+          if (agent === 'verifier' && count === 0) { fields.STATUS = 'retry'; fields.ISSUES = 'Missing story regression test' }
+          if (agent === 'reviewer' && count === 0) { fields.STATUS = 'retry'; fields.FEEDBACK = 'Missing integration coverage' }
+          if (agent === 'reviewer' && count === 1 && !context.includes('Integration fixed; review the existing PR'))
+            throw new Error('Recovery guidance did not reach reviewer')
+        }
         const text = agent ? Object.entries(fields).filter(([, value]) => value !== undefined).map(([key, value]) => `${key}: ${value}`).join('\n') : 'Native Antfarm fixture completed.'
         yield { type: 'block-start', index: 0, blockType: 'text' }
         yield { type: 'text-delta', index: 0, text }

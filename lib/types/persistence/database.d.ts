@@ -106,6 +106,7 @@ export interface ClaimedStep {
     step: StepRow;
     sessionId: string;
     input: string;
+    context: Readonly<Record<string, string>>;
 }
 /** @param output - Original KEY: value response. @returns Lowercase context entries. */
 export declare function parseOutputKeyValues(output: string): Record<string, string>;
@@ -149,7 +150,7 @@ export declare class AntfarmDatabase {
     claim(runId: string, progress?: string, frontend?: string): ClaimedStep | undefined;
     private active;
     private settle;
-    /** @param sessionId - Exact claimant. @param output - Original worker text. @returns Whether this completion was current. */
+    /** @param sessionId - Exact claimant. @param output - Worker text with an explicit STATUS. @returns Whether the current attempt was accepted, retried or rejected. @throws If the reply omits a valid status or expected success text. */
     complete(sessionId: string, output: string): boolean;
     private insertStories;
     private continueLoop;

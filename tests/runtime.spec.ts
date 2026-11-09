@@ -25,7 +25,7 @@ const result = (output: string): SubagentResult => ({
 const output =
   'STATUS: done\nCHANGES: fixed\nTESTS: pass\nTEST_CMD: npm test\nBUILD_CMD: npm run build\nBASELINE: pass\nRESULTS: pass\nPR: https://example.test/pr/1\nDECISION: approved'
 
-async function fixture(first?: { result: Promise<SubagentResult>; dispose(): Promise<void> }) {
+async function fixture(first?: { result: Promise<SubagentResult>; dispose(): Promise<void> }, reply?: (persona: string, input: string) => string | undefined) {
   const home = await mkdtemp(join(tmpdir(), 'antfarm-runtime-'))
   const ctx = new Context()
   onTestFinished(async () => {
@@ -72,9 +72,10 @@ async function fixture(first?: { result: Promise<SubagentResult>; dispose(): Pro
       personas.push(persona)
       started.resolve()
       if (calls.length === 1 && first) return { childId: spec.childId!, ...first }
-      const text = persona.includes('/planner')
+      const input = spec.request.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n')
+      const text = reply?.(persona, input) ?? (persona.includes('/planner')
         ? `STATUS: done\nREPO: ${home}\nBRANCH: feature/test\nSTORIES_JSON: [{"id":"S1","title":"Feature","description":"Implement it","acceptanceCriteria":["Tests pass"]}]`
-        : output
+        : output)
       return { childId: spec.childId!, result: Promise.resolve(result(text)), dispose: async () => {} }
     },
   })
@@ -100,6 +101,9 @@ it('runs the original pipeline with complete personas and distinct fresh Session
   expect(personas[0]).toContain('AGENTS.md')
   expect(personas[0]).toContain('feature-dev/planner')
   expect(personas[2]).toContain('feature-dev/developer')
+  expect(personas.join('\n')).not.toContain('[missing:')
+  expect(personas[3]).toContain('git diff main..feature/test')
+  expect(personas[3]).toContain('npm test')
   expect(status.childSessionIds).toEqual(calls.map((call) => call.childId))
 })
 
@@ -191,4 +195,25 @@ it('preserves an uncertain attempt when native child disposal fails', async () =
   expect(status.uncertain).toBe(true)
   expect(status.steps[0]?.status).toBe('running')
   await expect(runtime.resume({ parent, runId: receipt.runId })).rejects.toThrow('recovery guidance')
+})
+
+it('retries failed work and resumes rejected review with guidance in the native prompt', async () => {
+  let planningAttempts = 0
+  let reviewAttempts = 0
+  const { runtime, parent, calls } = await fixture(undefined, (persona, input) => {
+    if (persona.includes('/planner') && planningAttempts++ === 0)
+      return 'STATUS: failed\nERROR: Temporary dependency failure'
+    if (persona.includes('/reviewer')) {
+      if (reviewAttempts++ === 0) return 'STATUS: retry\nFEEDBACK: Missing integration test'
+      expect(input).toContain('The integration test is fixed; review the existing PR')
+      expect(input).toContain('Missing integration test')
+    }
+    return undefined
+  })
+  const receipt = await runtime.start({ parent, task: 'Exercise worker outcomes' })
+  expect((await runtime.wait(receipt.runId, parent.id)).summary.status).toBe('failed')
+  expect(calls).toHaveLength(8)
+  await runtime.resume({ parent, runId: receipt.runId, guidance: 'The integration test is fixed; review the existing PR' })
+  expect((await runtime.wait(receipt.runId, parent.id)).summary.status).toBe('completed')
+  expect(calls).toHaveLength(9)
 })
