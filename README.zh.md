@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。在工作流看板配置 Agent、启动任务并查看步骤输出、故事与原生会话记录。版本 `0.3.3` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
+在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。在工作流看板配置 Agent、启动任务并查看步骤输出、故事与原生会话记录。版本 `0.3.4` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
 
 ## 目录
 
@@ -34,7 +34,7 @@ kind: "package-bundle"
 若此 profile 已安装无 scope 的 `dsh-antfarm`，先使用 `dsh plugin --profile web remove dsh-antfarm` 移除旧安装层，再安装带 scope 的发布包。
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.3
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.4
 ```
 
 源码开发使用：

@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Configure Agents, start tasks and inspect step outputs, stories and native transcripts on the workflow board. Version `0.3.3` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
+Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Configure Agents, start tasks and inspect step outputs, stories and native transcripts on the workflow board. Version `0.3.4` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
 
 ## Table of Contents
 
@@ -34,7 +34,7 @@ Install the immutable release tag into a Web profile:
 If this profile has the unscoped `dsh-antfarm` package, remove that layer with `dsh plugin --profile web remove dsh-antfarm` before installing the scoped release.
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.3
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.4
 ```
 
 For source development:
