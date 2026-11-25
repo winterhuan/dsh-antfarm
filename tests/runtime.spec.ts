@@ -72,7 +72,7 @@ async function fixture(first?: { result: Promise<SubagentResult>; dispose(): Pro
       personas.push(persona)
       started.resolve()
       if (calls.length === 1 && first) return { childId: spec.childId!, ...first }
-      const input = spec.request.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n')
+      const input = spec.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n')
       const text = reply?.(persona, input) ?? (persona.includes('/planner')
         ? `STATUS: done\nREPO: ${home}\nBRANCH: feature/test\nSTORIES_JSON: [{"id":"S1","title":"Feature","description":"Implement it","acceptanceCriteria":["Tests pass"]}]`
         : output)
@@ -95,7 +95,7 @@ it('runs the original pipeline with complete personas and distinct fresh Session
   expect(status.summary.status, JSON.stringify(status.steps)).toBe('completed')
   expect(calls).toHaveLength(7)
   expect(new Set(calls.map((call) => call.childId)).size).toBe(7)
-  expect(calls.every((call) => call.request.agentPreset === 'standard')).toBe(true)
+  expect(calls.every((call) => call.agentPreset === 'standard')).toBe(true)
   expect(personas[0]).toContain('IDENTITY.md')
   expect(personas[0]).toContain('SOUL.md')
   expect(personas[0]).toContain('AGENTS.md')

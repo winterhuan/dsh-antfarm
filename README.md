@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Configure Agents, start tasks and inspect step outputs, stories and native transcripts on the workflow board. Version `0.3.4` targets DSH `0.2.2-rc.1` and preserves historical `0.2.0` runs for inspection.
+Run the original feature-development, bug-fix and security-audit teams in DSH. Each specialist keeps its own identity, persona and workspace, while each attempt gets a fresh Session. Configure Agents, start tasks and inspect step outputs, stories and native transcripts on the workflow board. Version `0.3.5` targets DSH `0.2.2-rc.5` and preserves historical `0.2.0` runs for inspection.
 
 ## Table of Contents
 
@@ -27,14 +27,14 @@ Run the original feature-development, bug-fix and security-audit teams in DSH. E
 
 ### Install and develop
 
-Use Node.js `^22.19 || >=24`, pnpm `11.7.0` and a DSH `0.2.2-rc.1` Web profile providing the native `standard` Agent Preset and local `spawn` provider. The bundle adds five workflow tools, the `/antfarm` command, the Session sidebar and the workflow board. It registers no Antfarm role presets.
+Use Node.js `^22.19 || >=24`, pnpm `11.7.0` and a DSH `0.2.2-rc.5` Web profile providing the native `standard` Agent Preset and local `spawn` provider. The bundle adds five workflow tools, the `/antfarm` command, the Session sidebar and the workflow board. It registers no Antfarm role presets.
 
 Install the immutable release tag into a Web profile:
 
 If this profile has the unscoped `dsh-antfarm` package, remove that layer with `dsh plugin --profile web remove dsh-antfarm` before installing the scoped release.
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.4
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.5
 ```
 
 For source development:
@@ -159,7 +159,7 @@ The identity section follows the shared native prompt. Persona variables resolve
 - Role policies restrict direct tools. Shell and skill access can still modify files; deployment permissions remain authoritative.
 - Original text outputs and PR links remain worker reports. The Host does not independently approve GitHub reviews or attach candidate-bound test evidence.
 - Interrupted effects can repeat after explicit recovery. SQLite, fresh Sessions and event logs do not guarantee exactly-once external actions.
-- OpenClaw cron installation, dashboard processes and polling-model calls use native DSH equivalents. Default Headless lacks the required preset composition; DSH `0.2.2-rc.1` has no TUI entry.
+- OpenClaw cron installation, dashboard processes and polling-model calls use native DSH equivalents. Default Headless lacks the required preset composition; DSH `0.2.2-rc.5` has no TUI entry.
 - [PARITY](PARITY.md#acceptance-scope) separates local mechanism evidence from real-model quality, platform and remote release verification.
 
 <a id="dev-note"></a>

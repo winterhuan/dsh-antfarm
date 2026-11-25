@@ -1,4 +1,4 @@
-/** Run with DSH 0.2.2-rc.1 on PATH; an optional package spec tests a remote release instead of the built checkout. */
+/** Run with DSH 0.2.2-rc.5 on PATH; an optional package spec tests a remote release instead of the built checkout. */
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -69,10 +69,17 @@ export function apply(ctx) {
     const generations = files.filter(file => basename(dirname(file)) === attempt.session_id && /session\.v\d+\.jsonl\.zstd$/.test(file))
       .sort((a, b) => Number(/session\.v(\d+)/.exec(a)[1]) - Number(/session\.v(\d+)/.exec(b)[1]))
     assert.ok(generations.length, `Missing persisted child Session ${attempt.session_id}`)
-    const events = zstdDecompressSync(await readFile(join(sessions, generations.at(-1))))
-      .toString().trim().split('\n').map(line => JSON.parse(line))
+    let remaining = await readFile(join(sessions, generations.at(-1)))
+    const chunks = []
+    // Node's one-shot decoder consumes one frame; DSH appends one frame per durable batch.
+    while (remaining.length) {
+      const { buffer, engine } = zstdDecompressSync(remaining, { info: true })
+      chunks.push(buffer)
+      remaining = remaining.subarray(engine.bytesWritten)
+    }
+    const events = Buffer.concat(chunks).toString().trim().split('\n').map(line => JSON.parse(line))
     const toolResults = events.filter(event => event.type === 'tool/result')
-    assert.equal(toolResults.length, 1)
+    assert.equal(toolResults.length, 1, `Persisted tool results in ${generations.at(-1)}`)
     assert.equal(toolResults[0].data.message.isError, false)
   }
   const requests = (await readFile(telemetryPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))

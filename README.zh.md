@@ -9,7 +9,7 @@ kind: "package-bundle"
 
 ## 概述
 
-在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。在工作流看板配置 Agent、启动任务并查看步骤输出、故事与原生会话记录。版本 `0.3.4` 对应 DSH `0.2.2-rc.1`，并保留历史 `0.2.0` 运行供检查。
+在 DSH 中运行原版功能开发、缺陷修复和安全审计团队。每位专家保留独立身份、人设与工作区，每次尝试创建全新 Session。在工作流看板配置 Agent、启动任务并查看步骤输出、故事与原生会话记录。版本 `0.3.5` 对应 DSH `0.2.2-rc.5`，并保留历史 `0.2.0` 运行供检查。
 
 ## 目录
 
@@ -27,14 +27,14 @@ kind: "package-bundle"
 
 ### 安装与开发
 
-使用 Node.js `^22.19 || >=24`、pnpm `11.7.0` 和 DSH `0.2.2-rc.1` Web profile；宿主需提供原生 `standard` Agent Preset 与本地 `spawn` provider。此组合包增加五个工作流工具、`/antfarm` 命令、Session 侧栏和工作流看板，不注册 Antfarm 角色 preset。
+使用 Node.js `^22.19 || >=24`、pnpm `11.7.0` 和 DSH `0.2.2-rc.5` Web profile；宿主需提供原生 `standard` Agent Preset 与本地 `spawn` provider。此组合包增加五个工作流工具、`/antfarm` 命令、Session 侧栏和工作流看板，不注册 Antfarm 角色 preset。
 
 将不可变发布标签安装到 Web profile：
 
 若此 profile 已安装无 scope 的 `dsh-antfarm`，先使用 `dsh plugin --profile web remove dsh-antfarm` 移除旧安装层，再安装带 scope 的发布包。
 
 ```sh
-dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.4
+dsh plugin --profile web add github:winterhuan/dsh-antfarm#v0.3.5
 ```
 
 源码开发使用：
@@ -159,7 +159,7 @@ Worker 必须返回明确的 `STATUS: done`、`STATUS: retry` 或 `STATUS: faile
 - 角色策略限制直接工具。Shell 与 skill 仍可能修改文件；部署权限保持权威。
 - 原版文本输出与 PR 链接是 worker 报告。宿主不独立批准 GitHub review，也不附加候选绑定的测试证据。
 - 显式恢复后，中断的效果可能重复。SQLite、全新 Session 与事件日志不保证外部操作恰好执行一次。
-- OpenClaw cron 安装、独立 dashboard 进程与轮询模型调用使用原生 DSH 等效机制。默认 Headless 缺少所需 preset 装配；DSH `0.2.2-rc.1` 没有 TUI 入口。
+- OpenClaw cron 安装、独立 dashboard 进程与轮询模型调用使用原生 DSH 等效机制。默认 Headless 缺少所需 preset 装配；DSH `0.2.2-rc.5` 没有 TUI 入口。
 - [PARITY](PARITY.zh.md#acceptance-scope)区分本地机制证据、真实模型质量、平台与远程发布验证。
 
 <a id="dev-note"></a>
